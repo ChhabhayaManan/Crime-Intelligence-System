@@ -7,7 +7,7 @@ Functions
 ---------
   add_case_witness      – POST /cases/{case_id}/witnesses
   list_case_witnesses   – GET  /cases/{case_id}/witnesses
-  add_witness_testimony – POST /cases/{case_id}/witnesses/{witness_id}/testimony
+  record_testimony      – POST /cases/{case_id}/witnesses/{witness_id}/testimony
   list_case_testimonies – GET  /cases/{case_id}/testimonies
 """
 
@@ -32,12 +32,9 @@ from App.schema.case import (
     WitnessRead,
     WitnessTestimonyCreateRequest,
 )
-from App.schema.core import PersonSummary
 from App.CRUD.common import (
     build_person_summary,
-    next_id,
     not_found,
-    require,
     fetch_case,
 )
 
@@ -141,14 +138,14 @@ def list_case_witnesses(
     )
 
 
-def add_witness_testimony(
+def record_testimony(
     db: Session,
     case_id: int,
     witness_id: int,
     payload: WitnessTestimonyCreateRequest,
     open_date: date | None = None,
 ) -> TestimonyRead:
-    """Update witness testimony text and create PointedTo rows for each named suspect."""
+    """Set witness testimony text and link named suspects via PointedTo rows."""
     case = fetch_case(db, case_id, open_date)
 
     witness = db.get(Witness, witness_id)

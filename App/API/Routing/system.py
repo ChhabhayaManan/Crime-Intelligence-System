@@ -13,10 +13,6 @@ Auth
   POST /auth/register               - register new user (returns UserOut)
   POST /auth/login                  - login, returns JWT token
   POST /auth/change-password        - change password (requires valid JWT)
-
-Legacy RBAC
------------
-  POST /auth/access-check           - scope-based access check (requires valid JWT)
 """
 
 from datetime import date
@@ -24,14 +20,12 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from App.API.deps import get_db
-from App.CRUD.auth import enforce_rbac, get_current_active_user
+from App.CRUD.auth import get_current_active_user
 from App.db.models import AppUser
 from App.schema.case import (
     CaseEvidenceWitnessSuspectResponse,
     CrimeHotspotQuery,
     CrimeHotspotResponse,
-    RBACAccessCheckRequest,
-    RBACAccessCheckResponse,
 )
 from App.schema.core import (
     ChangePasswordRequest,
@@ -46,7 +40,6 @@ from App.CRUD.analytics import (
 )
 from App.CRUD.auth import (
     change_password,
-    check_access,
     login_user,
     register_user,
 )
@@ -63,7 +56,6 @@ def case_snapshot_endpoint(
     case_id: int,
     open_date: date | None = Query(default=None),
     db=Depends(get_db),
-    _: AppUser = Depends(enforce_rbac),
 ):
     """Return a combined snapshot of a case's evidence, witnesses, and suspects."""
     try:
@@ -78,7 +70,6 @@ def crime_hotspots_endpoint(
     from_date: date | None = Query(default=None, alias="from"),
     to_date: date | None = Query(default=None, alias="to"),
     db=Depends(get_db),
-    _: AppUser = Depends(enforce_rbac),
 ):
     """Aggregate case counts by city and return locations sorted by crime frequency."""
     try:
@@ -149,18 +140,3 @@ def change_password_endpoint(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
 
 
-# ---------------------------------------------------------------------------
-# Legacy RBAC access check (requires login; still pure scope validation)
-# ---------------------------------------------------------------------------
-
-@router.post("/auth/access-check", response_model=RBACAccessCheckResponse, status_code=200)
-def access_check_endpoint(
-    payload: RBACAccessCheckRequest,
-    db=Depends(get_db),
-    _: AppUser = Depends(get_current_active_user),
-):
-    """Check whether the given roles/scopes allow access to a specific endpoint."""
-    try:
-        return check_access(db, payload)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))

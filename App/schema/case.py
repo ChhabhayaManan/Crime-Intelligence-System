@@ -39,12 +39,6 @@ class CaseSortBy(str, Enum):
 
 
 #--------------Case Schemas--------------
-class CaseKey(SchemaModel):
-    """Input: Unique case identifier with case ID and open date."""
-    case_id: int = Field(..., gt=0)
-    open_date: date
-
-
 class PersonReferenceInput(SchemaModel):
     """Input: Reference to a person by ID or create new person inline."""
     person_id: int | None = Field(default=None, gt=0)
@@ -122,12 +116,6 @@ class CaseRead(SchemaModel):
     updated_at: datetime | None = None
 
 
-class CaseOfficer(SchemaModel):
-    """Link between case and assigned officer."""
-    case_id: int = Field(..., gt=0)
-    person_id: int = Field(..., gt=0)
-    assigned_at: datetime | None = None
-
 
 class CaseDetailResponse(SchemaModel):
     """Response: Case with all related evidence, witnesses, suspects, victims, and trials."""
@@ -173,11 +161,6 @@ class CaseListResponse(SchemaModel):
     """Response: Paginated list of case items with metadata."""
     items: list[CaseListItem] = Field(default_factory=list)
     meta: PageMeta = Field(default_factory=PageMeta)
-
-
-class TrialKey(SchemaModel):
-    """Input: Unique trial identifier by trial number."""
-    trial_id: int = Field(..., gt=0, description="Maps to trial.trial_number.")
 
 
 #---------------Evidence schemas---------------
@@ -300,23 +283,10 @@ class SuspectRead(SchemaModel):
     linked_evidence_ids: list[int] = Field(default_factory=list)
 
 
-class SuspectEvidence(SchemaModel):
-    """Link between suspect and evidence."""
-    suspect_id: int = Field(..., gt=0)
-    evidence_id: int = Field(..., gt=0)
-
-
 class CaseSuspectCreateResponse(SchemaModel):
     """Response: Newly added suspect with assigned ID and details."""
     suspect_id: int = Field(..., gt=0)
     suspect: SuspectRead
-
-
-class CaseSuspectListRequest(SchemaModel):
-    """Input: Request parameters to filter and paginate suspect listings."""
-    query: str | None = None
-    page: int = Field(default=1, ge=1)
-    page_size: int = Field(default=20, ge=1, le=200)
 
 
 class CaseSuspectListResponse(SchemaModel):
@@ -369,13 +339,6 @@ class CaseVictimListResponse(SchemaModel):
     items: list[VictimRead] = Field(default_factory=list)
 
 
-class VictimListQuery(SchemaModel):
-    """Input: Query parameters to filter and paginate victim listings."""
-    query: str | None = None
-    page: int = Field(default=1, ge=1)
-    page_size: int = Field(default=20, ge=1, le=200)
-
-
 #----------------Trial Schemas----------------
 class TrialRead(SchemaModel):
     """Response: Trial details including judge, hearing date, and court level."""
@@ -389,11 +352,6 @@ class TrialRead(SchemaModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     
-
-
-class CaseTrialListQuery(SchemaModel):
-    """Input: Query parameters to filter trials by open date."""
-    open_date: date | None = None
 
 
 class CaseTrialListResponse(SchemaModel):
@@ -516,100 +474,13 @@ class CrimeHotspotResponse(SchemaModel):
     items: list[CrimeHotspotItem] = Field(default_factory=list)
 
 
-class AuthRole(str, Enum):
-    """Enumeration of user roles for RBAC."""
-    ADMIN = "admin"
-    OFFICER = "officer"
-    INVESTIGATOR = "investigator"
-    PROSECUTOR = "prosecutor"
-    ANALYST = "analyst"
-    VIEWER = "viewer"
-
-
-class PermissionScope(str, Enum):
-    """Enumeration of permission scopes for fine-grained access control."""
-    # ── Address ───────────────────────────────────────────────
-    ADDRESS_READ    = "address:read"
-    ADDRESS_WRITE   = "address:write"
-
-    # ── Person ────────────────────────────────────────────────
-    PERSON_READ     = "person:read"
-    PERSON_WRITE    = "person:write"
-
-    # ── Case ──────────────────────────────────────────────────
-    CASE_READ       = "case:read"
-    CASE_OPEN       = "case:open"       # create + update
-    CASE_CLOSE      = "case:close"
-
-    # ── Officer assignment ────────────────────────────────────
-    OFFICER_ASSIGN  = "officer:assign"  # POST /cases/{id}/officers/{oid}
-    OFFICER_UNLINK  = "officer:unlink"  # DELETE /cases/{id}/officers/{oid}
-
-    # ── Evidence ──────────────────────────────────────────────
-    EVIDENCE_READ   = "evidence:read"
-    EVIDENCE_WRITE  = "evidence:write"  # add + update
-
-    # ── Witnesses & Testimony ─────────────────────────────────
-    WITNESS_READ    = "witness:read"
-    WITNESS_WRITE   = "witness:write"   # add witness + record testimony
-
-    # ── Suspects ──────────────────────────────────────────────
-    SUSPECT_READ    = "suspect:read"
-    SUSPECT_WRITE   = "suspect:write"   # add + update arrest status
-
-    # ── Victims ───────────────────────────────────────────────
-    VICTIM_READ     = "victim:read"
-    VICTIM_WRITE    = "victim:write"    # add victim to case
-
-    # ── Trials, Hearings, Punishments ─────────────────────────
-    TRIAL_READ      = "trial:read"
-    TRIAL_WRITE     = "trial:write"     # create trial + record hearing
-    PUNISHMENT_WRITE = "punishment:write"
-    JUDGE_ASSIGN    = "judge:assign"    # POST /trials/{id}/judge/{jid}
-
-    # ── Analytics & Snapshot ──────────────────────────────────
-    ANALYTICS_READ  = "analytics:read"
-
-
-class LoginRequest(SchemaModel):
-    """Input: User credentials for authentication."""
-    username: str = Field(..., min_length=1, max_length=150)
-    password: str = Field(..., min_length=1, max_length=200)
-
-
-class TokenResponse(SchemaModel):
-    """Response: Generated access token with roles and scopes."""
-    access_token: str
-    token_type: str = "bearer"
-    expires_at: datetime
-    person_id: int | None = Field(default=None, gt=0)
-    roles: list[AuthRole] = Field(default_factory=list)
-    scopes: list[PermissionScope] = Field(default_factory=list)
-
-
-class RBACAccessCheckRequest(SchemaModel):
-    """Input: Request to verify access for endpoint with roles and scopes."""
-    endpoint: str = Field(..., min_length=1, max_length=255)
-    method: str = Field(..., min_length=3, max_length=10)
-    roles: list[AuthRole] = Field(default_factory=list)
-    scopes: list[PermissionScope] = Field(default_factory=list)
-
-
-class RBACAccessCheckResponse(SchemaModel):
-    """Response: Access check result with required scopes and reason."""
-    allowed: bool
-    required_scopes: list[PermissionScope] = Field(default_factory=list)
-    reason: str | None = None
-
 
 __all__ = [
     "CaseStatus",
     "CaseInclude",
     "SuspectStatus",
     "CaseSortBy",
-    "CaseKey",
     "PersonReferenceInput",
-    "TrialKey",
     "CaseOpenRequest",
     "CaseOpenResponse",
     "CaseUpdateRequest",
@@ -617,7 +488,6 @@ __all__ = [
     "CaseCloseResponse",
     "CaseRead",
     "CaseDetailResponse",
-    "CaseOfficer",
     "CaseListQuery",
     "CaseListItem",
     "CaseListResponse",
@@ -633,18 +503,14 @@ __all__ = [
     "TestimonyRead",
     "CaseSuspectCreateRequest",
     "CaseSuspectCreateResponse",
-    "CaseSuspectListRequest",
     "CaseSuspectListResponse",
     "CaseSuspectUpdateRequest",
     "CaseSuspectUpdateResponse",
     "SuspectRead",
-    "SuspectEvidence",
     "CaseVictimCreateRequest",
     "CaseVictimCreateResponse",
     "CaseVictimListResponse",
-    "VictimListQuery",
     "VictimRead",
-    "CaseTrialListQuery",
     "CaseTrialListResponse",
     "TrialCreateRequest",
     "TrialCreateResponse",
@@ -659,10 +525,4 @@ __all__ = [
     "CrimeHotspotQuery",
     "CrimeHotspotItem",
     "CrimeHotspotResponse",
-    "AuthRole",
-    "PermissionScope",
-    "LoginRequest",
-    "TokenResponse",
-    "RBACAccessCheckRequest",
-    "RBACAccessCheckResponse",
 ]

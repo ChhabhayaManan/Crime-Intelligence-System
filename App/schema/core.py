@@ -5,12 +5,6 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
 class SchemaModel(BaseModel):
-    """
-    Base schema model with common configuration for all schemas.
-    from_attributes=True allows ORM capabilities, letting us create models from database objects.
-    populate_by_name=True allows using field names as keys when creating models, even if aliases are defined.
-    extra="forbid" ensures that any unexpected fields in input data will raise a validation error, helping to catch typos and enforce strict schema adherence.
-    """
     model_config = ConfigDict(from_attributes=True, populate_by_name=True, extra="forbid")
 
 
@@ -31,12 +25,10 @@ class AddressBase(SchemaModel):
 
 
 class AddressCreate(AddressBase):
-    """Input: Create new address."""
     pass
 
 
 class AddressUpdate(AddressBase):
-    """Input: Update existing address."""
     pass
 
 
@@ -103,15 +95,6 @@ class PersonRole(str, Enum):
     CRIMINAL = "criminal"
 
 
-class PersonRoleFlags(SchemaModel):
-    """Input: Flags indicating which roles a person has."""
-    is_officer: bool = False
-    is_suspect: bool = False
-    is_victim: bool = False
-    is_witness: bool = False
-    is_criminal: bool = False
-
-
 class PersonRoleDetails(SchemaModel):
     """Response: Details for each role type."""
     officer: PoliceOfficerDetails | None = None
@@ -148,16 +131,7 @@ class PersonCreateResponse(SchemaModel):
     summary: PersonSummary
 
 
-class PersonListQuery(SchemaModel):
-    """Input: Search and filter parameters for person list."""
-    query: str | None = None
-    role: PersonRole | None = None
-    page: int = Field(default=1, ge=1)
-    page_size: int = Field(default=20, ge=1, le=200)
-
-
 class PersonListItem(PersonSummary):
-    """Response: Person item in list results."""
     pass
 
 
@@ -258,10 +232,8 @@ __all__ = [
     "PersonSummary",
     "PersonRead",
     "PersonCreateResponse",
-    "PersonListQuery",
     "PersonListItem",
     "PersonListResponse",
-    "PersonRoleFlags",
     "PersonRoleDetails",
     "PoliceOfficerDetails",
     "CriminalDetails",

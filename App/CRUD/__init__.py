@@ -65,7 +65,7 @@ from .evidence import (
 # ---- witness ----
 from .witness import (
     add_case_witness,
-    add_witness_testimony,
+    record_testimony,
     list_case_testimonies,
     list_case_witnesses,
 )
@@ -92,6 +92,7 @@ from .trial import (
     apply_trial_punishment,
     get_trial_detail,
     list_case_trials,
+    trial_read,
 )
 
 # ---- analytics ----
@@ -102,10 +103,7 @@ from .analytics import (
 
 # ---- auth ----
 from .auth import (
-    ROLE_SCOPE_MAP,
     change_password,
-    check_access,
-    enforce_rbac,
     get_current_active_user,
     get_current_user,
     login_user,
@@ -151,7 +149,7 @@ __all__ = [
     # witness
     "add_case_witness",
     "list_case_witnesses",
-    "add_witness_testimony",
+    "record_testimony",
     "list_case_testimonies",
     # suspect
     "add_case_suspect",
@@ -168,6 +166,7 @@ __all__ = [
     "add_trial_hearing",
     "get_trial_detail",
     "apply_trial_punishment",
+    "trial_read",
     # analytics
     "get_case_evidence_witness_suspect",
     "get_crime_hotspots",
@@ -177,7 +176,4 @@ __all__ = [
     "change_password",
     "get_current_user",
     "get_current_active_user",
-    "enforce_rbac",
-    "check_access",
-    "ROLE_SCOPE_MAP",
 ]

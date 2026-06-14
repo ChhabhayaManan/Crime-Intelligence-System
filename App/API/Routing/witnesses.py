@@ -7,7 +7,7 @@ Endpoints
 ---------
   POST   /cases/{case_id}/witnesses                            – add_case_witness
   GET    /cases/{case_id}/witnesses                            – list_case_witnesses
-  POST   /cases/{case_id}/witnesses/{witness_id}/testimony     – add_witness_testimony
+  POST   /cases/{case_id}/witnesses/{witness_id}/testimony     – record_testimony
   GET    /cases/{case_id}/testimonies                          – list_case_testimonies
 """
 
@@ -26,13 +26,11 @@ from App.schema.case import (
 )
 from App.CRUD.witness import (
     add_case_witness,
-    add_witness_testimony,
+    record_testimony,
     list_case_testimonies,
     list_case_witnesses,
 )
-from App.CRUD.auth import enforce_rbac
-
-router = APIRouter(tags=["witnesses"], dependencies=[Depends(enforce_rbac)])
+router = APIRouter(tags=["witnesses"])
 
 
 @router.post("/cases/{case_id}/witnesses", response_model=CaseWitnessCreateResponse, status_code=201)
@@ -76,7 +74,7 @@ def add_testimony_endpoint(
 ):
     """Record or update a witness's testimony and the suspects they point to."""
     try:
-        return add_witness_testimony(db, case_id, witness_id, payload, open_date)
+        return record_testimony(db, case_id, witness_id, payload, open_date)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

@@ -1,3 +1,5 @@
+""" Object-Relational Mapping (ORM) models for the Crime Tracking and Analysis Database. """
+
 from __future__ import annotations
 from datetime import date, datetime
 from typing import Optional
@@ -10,7 +12,6 @@ from sqlalchemy import func
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
-
 from .session import Base
 from sqlalchemy import inspect
 
@@ -189,6 +190,7 @@ class Criminal(Base):
         ForeignKey("person.personid"),
         primary_key=True,
     )
+    
     family_contact: Mapped[Optional[str]] = mapped_column("c_family_contact", String(15))
 
     person: Mapped["Person"] = relationship(back_populates="criminal_profile")
