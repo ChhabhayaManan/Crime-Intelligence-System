@@ -15,22 +15,18 @@ Functions
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from App.db.models import (
     Address,
     AffectedBy,
-    AssignedTo,
     CaseDetail,
     CollectedFor,
     Evidence,
     InvolvedIn,
-    Person,
     Suspect,
     TestifiesIn,
-    Trial,
     Victim,
     Witness,
 )
@@ -51,24 +47,25 @@ from App.schema.case import (
     SuspectRead,
     SuspectStatus,
     TestimonyRead,
-    TrialRead,
     VictimRead,
     WitnessRead,
 )
 from App.schema.core import AddressRead, PageMeta
 from App.CRUD.common import (
+    assign_officer_to_case,
     build_person_summary,
     next_id,
     not_found,
     paginate,
     fetch_case,
 )
+from App.CRUD.trial import trial_read
 
 # ---------------------------------------------------------------------------
 # Internal mappers
 # ---------------------------------------------------------------------------
 
-def _case_to_read(case: CaseDetail, db: Session) -> CaseRead:
+def _case_to_read(case: CaseDetail) -> CaseRead:
     officer_ids = [a.officer_person_id for a in case.assigned_to_entries]
     reporter = (
         build_person_summary(case.reporting_person)
@@ -147,34 +144,17 @@ def _witness_row(ti: TestifiesIn) -> WitnessRead:
     )
 
 
-def _trial_row(trial: Trial) -> TrialRead:
-    return TrialRead(
-        case_id=trial.case_id,
-        open_date=trial.open_date,
-        trial_number=trial.trial_number,
-        trial_id=trial.trial_number,
-        hearing_date=trial.hearing,
-        judge_id=trial.judge_id,
-        court_level=trial.court_level,
-    )
-
-
 def _testimony_rows(case: CaseDetail) -> list[TestimonyRead]:
-    rows = []
-    tid = 1
-    for ti in case.testifies_in_entries:
-        suspects_pointed = [pt.suspect_person_id for pt in ti.pointed_to_entries]
-        rows.append(
-            TestimonyRead(
-                testimony_id=tid,
-                witness_id=ti.witness_person_id,
-                case_id=ti.case_id,
-                testimony_text=ti.witness.testimony or "",
-                pointed_suspects=suspects_pointed,
-            )
+    return [
+        TestimonyRead(
+            testimony_id=tid,
+            witness_id=ti.witness_person_id,
+            case_id=ti.case_id,
+            testimony_text=ti.witness.testimony or "",
+            pointed_suspects=[pt.suspect_person_id for pt in ti.pointed_to_entries],
         )
-        tid += 1
-    return rows
+        for tid, ti in enumerate(case.testifies_in_entries, start=1)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +180,6 @@ def open_case(db: Session, payload: CaseOpenRequest) -> CaseOpenResponse:
     db.flush()
 
     if payload.initial_officer_id:
-        from App.CRUD.common import assign_officer_to_case
         assign_officer_to_case(db, new_id, payload.initial_officer_id, open_date)
 
     db.commit()
@@ -219,7 +198,7 @@ def get_case(
 ) -> CaseRead:
     """Fetch a single case's read representation."""
     case = fetch_case(db, case_id, open_date)
-    return _case_to_read(case, db)
+    return _case_to_read(case)
 
 
 def update_case(
@@ -247,12 +226,11 @@ def update_case(
         case.end_date = payload.end_date
 
     if payload.assigned_officer_id is not None:
-        from App.CRUD.common import assign_officer_to_case
         assign_officer_to_case(db, case_id, payload.assigned_officer_id, case.open_date)
 
     db.commit()
     db.refresh(case)
-    return _case_to_read(case, db)
+    return _case_to_read(case)
 
 
 def close_case(
@@ -310,24 +288,18 @@ def list_cases(db: Session, query: CaseListQuery) -> CaseListResponse:
 
     items, total = paginate(q, query.page, query.page_size)
 
-    list_items = []
-    for c in items:
-        city = (
-            c.crime_location_address.city if c.crime_location_address else None
-        )
-        list_items.append(
+    return CaseListResponse(
+        items=[
             CaseListItem(
                 case_id=c.case_id,
                 open_date=c.open_date,
                 crime_date=c.crime_date,
                 crime_type=c.crime_type,
                 status=CaseStatus(c.case_status) if c.case_status else None,
-                city=city,
+                city=c.crime_location_address.city if c.crime_location_address else None,
             )
-        )
-
-    return CaseListResponse(
-        items=list_items,
+            for c in items
+        ],
         meta=PageMeta(page=query.page, page_size=query.page_size, total=total),
     )
 
@@ -363,7 +335,7 @@ def get_case_details(
         else []
     )
     trials = (
-        [_trial_row(t) for t in case.trials]
+        [trial_read(t) for t in case.trials]
         if CaseInclude.TRIALS in include_set
         else []
     )
@@ -374,7 +346,7 @@ def get_case_details(
     )
 
     return CaseDetailResponse(
-        case=_case_to_read(case, db),
+        case=_case_to_read(case),
         included=list(include_set),
         evidence=evidence,
         witnesses=witnesses,

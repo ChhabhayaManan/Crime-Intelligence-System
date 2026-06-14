@@ -19,17 +19,16 @@ Utilities
 """
 
 from __future__ import annotations
-from datetime import date, datetime
-from typing import TypeVar
+from datetime import date
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from App.db.models import *
 from App.schema.core import *
-from sqlalchemy import func
+
 # ---------------------------------------------------------------------------
 # Generic helpers
 # ---------------------------------------------------------------------------
 
-T = TypeVar("T")
 def build_full_name(person: Person) -> str | None:
     """ Join first/middle/last name into one string """
     return (
@@ -95,7 +94,8 @@ def build_person_summary(person: Person) -> PersonSummary:
 
 def fetch_case(db: Session, case_id: int, open_date: date | None = None) -> CaseDetail:
     """Fetch a CaseDetail by case_id (latest open_date if not specified). Raises ValueError if missing."""
-    if open_date is not None:
+
+    if open_date is not None: 
         case = (
             db.query(CaseDetail)
             .filter(CaseDetail.case_id == case_id, CaseDetail.open_date == open_date)
@@ -188,6 +188,7 @@ def unlink_officer_from_case(
     )
     if row is None:
         return False
+    
     db.delete(row)
     return True
 
@@ -270,8 +271,6 @@ def link_suspect_evidence(
 
 def next_id(db: Session, model, id_column: str) -> int:
     """Return MAX(id_column)+1 for the given model, or 1 if the table is empty."""
-    
-
     col = getattr(model, id_column)
     result = db.query(func.max(col)).scalar()
     return (result or 0) + 1

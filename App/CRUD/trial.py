@@ -37,9 +37,7 @@ from App.schema.case import (
     TrialRead,
 )
 from App.CRUD.common import (
-    next_id,
     next_trial_number,
-    not_found,
     fetch_case,
     fetch_trial,
 )
@@ -48,7 +46,7 @@ from App.CRUD.common import (
 # Internal mapper
 # ---------------------------------------------------------------------------
 
-def _trial_read(trial: Trial) -> TrialRead:
+def trial_read(trial: Trial) -> TrialRead:
     return TrialRead(
         case_id=trial.case_id,
         open_date=trial.open_date,
@@ -100,7 +98,7 @@ def add_case_trial(
     db.commit()
     db.refresh(trial)
 
-    return TrialCreateResponse(trial_id=trial_num, trial=_trial_read(trial))
+    return TrialCreateResponse(trial_id=trial_num, trial=trial_read(trial))
 
 
 def list_case_trials(
@@ -113,7 +111,7 @@ def list_case_trials(
 
     return CaseTrialListResponse(
         case_id=case.case_id,
-        items=[_trial_read(t) for t in case.trials],
+        items=[trial_read(t) for t in case.trials],
     )
 
 
@@ -143,7 +141,7 @@ def add_trial_hearing(
     db.commit()
     db.refresh(trial)
 
-    return TrialHearingCreateResponse(trial_id=trial_id, trial=_trial_read(trial))
+    return TrialHearingCreateResponse(trial_id=trial_id, trial=trial_read(trial))
 
 
 def get_trial_detail(
@@ -164,7 +162,7 @@ def get_trial_detail(
     )
 
     return TrialDetailResponse(
-        trial=_trial_read(trial),
+        trial=trial_read(trial),
         punishments=[_punishment_read(p) for p in punishments],
     )
 

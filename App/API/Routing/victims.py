@@ -26,9 +26,7 @@ from App.CRUD.victim import (
     list_case_victims,
     list_victims,
 )
-from App.CRUD.auth import enforce_rbac
-
-router = APIRouter(tags=["victims"], dependencies=[Depends(enforce_rbac)])
+router = APIRouter(tags=["victims"])
 
 
 @router.post("/cases/{case_id}/victims", response_model=CaseVictimCreateResponse, status_code=201)

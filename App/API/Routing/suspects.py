@@ -30,9 +30,7 @@ from App.CRUD.suspect import (
     list_case_suspects,
     update_case_suspect,
 )
-from App.CRUD.auth import enforce_rbac
-
-router = APIRouter(tags=["suspects"], dependencies=[Depends(enforce_rbac)])
+router = APIRouter(tags=["suspects"])
 
 
 @router.post("/cases/{case_id}/suspects", response_model=CaseSuspectCreateResponse, status_code=201)

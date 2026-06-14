@@ -35,10 +35,9 @@ from App.CRUD.trial import (
     get_trial_detail,
     list_case_trials,
 )
-from App.CRUD.auth import enforce_rbac
 from App.CRUD.common import assign_judge_to_trial
 
-router = APIRouter(tags=["trials"], dependencies=[Depends(enforce_rbac)])
+router = APIRouter(tags=["trials"])
 
 
 @router.post("/cases/{case_id}/trials", response_model=TrialCreateResponse, status_code=201)

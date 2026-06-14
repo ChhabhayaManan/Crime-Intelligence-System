@@ -43,10 +43,9 @@ from App.CRUD.case import (
     open_case,
     update_case,
 )
-from App.CRUD.auth import enforce_rbac
 from App.CRUD.common import assign_officer_to_case, unlink_officer_from_case
 
-router = APIRouter(tags=["cases"], dependencies=[Depends(enforce_rbac)])
+router = APIRouter(tags=["cases"])
 
 
 # ---------------------------------------------------------------------------
