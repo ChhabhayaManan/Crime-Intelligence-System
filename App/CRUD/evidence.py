@@ -30,7 +30,7 @@ from App.CRUD.common import next_id, not_found, fetch_case
 # Internal mapper
 # ---------------------------------------------------------------------------
 
-def _ev_read(ev: Evidence, case_id: int, open_date: date, collected_by: int | None = None, evidence_type: str | None = None) -> EvidenceRead:
+def _ev_read(ev: Evidence, case_id: int, open_date: date) -> EvidenceRead:
     return EvidenceRead(
         evidence_id=ev.evidence_id,
         case_id=case_id,
@@ -38,8 +38,6 @@ def _ev_read(ev: Evidence, case_id: int, open_date: date, collected_by: int | No
         description=ev.description,
         collection_date=ev.collection_date,
         location_id=ev.location_id,
-        evidence_type=evidence_type,
-        collected_by=collected_by,
     )
 
 
@@ -75,13 +73,7 @@ def add_case_evidence(
     db.commit()
     db.refresh(ev)
 
-    ev_read = _ev_read(
-        ev,
-        case.case_id,
-        case.open_date,
-        collected_by=payload.collected_by,
-        evidence_type=payload.evidence_type,
-    )
+    ev_read = _ev_read(ev, case.case_id, case.open_date)
     return CaseEvidenceCreateResponse(evidence_id=ev.evidence_id, evidence=ev_read)
 
 
@@ -106,24 +98,22 @@ def list_case_evidence(
 
 
 def get_evidence(db: Session, evidence_id: int) -> EvidenceRead:
-    """Fetch a single evidence item by ID (first case association used for context)."""
+    """Fetch a single evidence item by ID."""
     ev = db.get(Evidence, evidence_id)
     if ev is None:
         not_found("Evidence", evidence_id)
 
-    # Take first case association for context IDs
     cf = ev.collected_for_entries[0] if ev.collected_for_entries else None  # type: ignore[union-attr]
-    case_id = cf.case_id if cf else 0
-    open_date = cf.open_date if cf else date.today()
+    if cf is None:
+        raise ValueError(f"Evidence {evidence_id} has no associated case.")
 
-    return _ev_read(ev, case_id, open_date)  # type: ignore[arg-type]
+    return _ev_read(ev, cf.case_id, cf.open_date)  # type: ignore[arg-type]
 
 
 def update_evidence(
     db: Session,
     evidence_id: int,
     description: str | None = None,
-    evidence_type: str | None = None,
     location_id: int | None = None,
     collected_at: date | None = None,
 ) -> EvidenceRead:
@@ -143,7 +133,7 @@ def update_evidence(
     db.refresh(ev)
 
     cf = ev.collected_for_entries[0] if ev.collected_for_entries else None  # type: ignore[union-attr]
-    case_id = cf.case_id if cf else 0
-    open_date = cf.open_date if cf else date.today()
+    if cf is None:
+        raise ValueError(f"Evidence {evidence_id} has no associated case.")
 
-    return _ev_read(ev, case_id, open_date, evidence_type=evidence_type)  # type: ignore[arg-type]
+    return _ev_read(ev, cf.case_id, cf.open_date)  # type: ignore[arg-type]

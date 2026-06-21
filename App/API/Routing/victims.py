@@ -19,6 +19,7 @@ from App.schema.case import (
     CaseVictimCreateRequest,
     CaseVictimCreateResponse,
     CaseVictimListResponse,
+    VictimListResponse,
     VictimRead,
 )
 from App.CRUD.victim import (
@@ -56,7 +57,7 @@ def list_case_victims_endpoint(
         raise HTTPException(status_code=404, detail=str(exc))
 
 
-@router.get("/victims", response_model=dict)
+@router.get("/victims", response_model=VictimListResponse)
 def list_victims_endpoint(
     query: str | None = Query(default=None, description="Free-text name search"),
     page: int = Query(default=1, ge=1),

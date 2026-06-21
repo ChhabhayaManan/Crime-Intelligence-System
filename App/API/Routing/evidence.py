@@ -71,18 +71,16 @@ def get_evidence_endpoint(evidence_id: int, db=Depends(get_db)):
 def update_evidence_endpoint(
     evidence_id: int,
     description: str | None = None,
-    evidence_type: str | None = None,
     location_id: int | None = None,
     collected_at: date | None = None,
     db=Depends(get_db),
 ):
-    """Partially update an evidence record (description, type, location, collection date)."""
+    """Partially update an evidence record (description, location, collection date)."""
     try:
         return update_evidence(
             db,
             evidence_id,
             description=description,
-            evidence_type=evidence_type,
             location_id=location_id,
             collected_at=collected_at,
         )

@@ -84,18 +84,16 @@ class CaseUpdateRequest(SchemaModel):
 
 
 class CaseCloseRequest(SchemaModel):
-    """Input: Request to close an open case with summary and date."""
-    closing_summary: str | None = Field(default=None, max_length=255)
+    """Input: Request to close an open case with a closure date."""
     closed_at: date | None = None
 
 
 class CaseCloseResponse(SchemaModel):
-    """Response: Case closure confirmation with end date and summary."""
+    """Response: Case closure confirmation with end date."""
     case_id: int = Field(..., gt=0)
     open_date: date
     status: CaseStatus = CaseStatus.CLOSED
     end_date: date | None = None
-    closing_summary: str | None = Field(default=None, max_length=255)
 
 
 class CaseRead(SchemaModel):
@@ -112,8 +110,6 @@ class CaseRead(SchemaModel):
     reporter: PersonSummary | None = None
     location: AddressRead | None = None
     assigned_officer_ids: list[int] = Field(default_factory=list)
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
 
 
 
@@ -167,9 +163,7 @@ class CaseListResponse(SchemaModel):
 
 class CaseEvidenceCreateRequest(SchemaModel):
     """Input: Request to add evidence to a case."""
-    evidence_type: str | None = Field(default=None, max_length=50)
     description: str | None = Field(default=None, max_length=255)
-    collected_by: int | None = Field(default=None, gt=0)
     collected_at: date | None = Field(default=None, description="Maps to evidence.collection_date.")
     location_id: int | None = Field(default=None, gt=0, description="Maps to evidence.location_id.")
 
@@ -182,8 +176,6 @@ class EvidenceRead(SchemaModel):
     description: str | None = Field(default=None, max_length=255)
     collection_date: date | None = None
     location_id: int | None = Field(default=None, gt=0)
-    evidence_type: str | None = Field(default=None, max_length=50)
-    collected_by: int | None = Field(default=None, gt=0)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -261,8 +253,7 @@ class TestimonyRead(SchemaModel):
 
 #----------------Suspect Schemas----------------
 class CaseSuspectCreateRequest(PersonReferenceInput):
-    """Input: Request to add suspect with reason and linked evidence."""
-    reason: str | None = Field(default=None, max_length=255)
+    """Input: Request to add suspect with linked evidence."""
     evidence_ids: list[int] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -279,7 +270,6 @@ class SuspectRead(SchemaModel):
     physical_description: str | None = Field(default=None, max_length=255)
     family_contact: str | None = Field(default=None, max_length=15)
     arrest_status: SuspectStatus | None = None
-    reason: str | None = Field(default=None, max_length=255)
     linked_evidence_ids: list[int] = Field(default_factory=list)
 
 
@@ -339,6 +329,12 @@ class CaseVictimListResponse(SchemaModel):
     items: list[VictimRead] = Field(default_factory=list)
 
 
+class VictimListResponse(SchemaModel):
+    """Response: Paginated global victim list."""
+    items: list[VictimRead] = Field(default_factory=list)
+    meta: PageMeta = Field(default_factory=PageMeta)
+
+
 #----------------Trial Schemas----------------
 class TrialRead(SchemaModel):
     """Response: Trial details including judge, hearing date, and court level."""
@@ -362,15 +358,9 @@ class CaseTrialListResponse(SchemaModel):
 
 class TrialCreateRequest(SchemaModel):
     """Input: Request to create new trial with judge and hearing details."""
-    court_id: int | None = Field(
-        default=None,
-        gt=0,
-        description="Not stored in current schema; kept for endpoint compatibility.",
-    )
     judge_id: int | None = Field(default=None, gt=0)
     hearing_date: date | None = None
     court_level: str | None = Field(default=None, max_length=50)
-    notes: str | None = Field(default=None, max_length=255)
 
 
 class TrialCreateResponse(SchemaModel):
@@ -380,11 +370,9 @@ class TrialCreateResponse(SchemaModel):
 
 
 class TrialHearingCreateRequest(SchemaModel):
-    """Input: Request to record hearing outcome and notes for a trial."""
-    hearing_notes: str | None = Field(default=None, max_length=255)
-    outcome: str | None = Field(default=None, max_length=255)
-    recorded_at: datetime | None = None
-    recorded_by: int | None = Field(default=None, gt=0)
+    """Input: Request to record hearing date and outcome for a trial."""
+    hearing_date: date | None = None
+    outcome: str | None = Field(default=None, max_length=50, description="Stored in court_level.")
 
 
 class TrialHearingCreateResponse(SchemaModel):
@@ -396,16 +384,10 @@ class TrialHearingCreateResponse(SchemaModel):
 class TrialPunishmentCreateRequest(SchemaModel):
     """Input: Request to assign punishment including fine, jail, or death penalty."""
     person_ids: list[int] = Field(..., min_length=1)
-    punishment_type: str | None = Field(
-        default=None,
-        max_length=50,
-        description="Not stored in current schema; can be derived from business rules.",
-    )
     fine: int | None = Field(default=None, ge=0)
     jail_start: date | None = None
     jail_end: date | None = None
     death_penalty: str | None = Field(default=None, min_length=1, max_length=1)
-    details: str | None = Field(default=None, max_length=255)
 
     @model_validator(mode="after")
     def validate_punishment(self) -> TrialPunishmentCreateRequest:
@@ -426,7 +408,6 @@ class PunishmentRead(SchemaModel):
     jail_end_date: date | None = None
     death_penalty: str | None = Field(default=None, min_length=1, max_length=1)
     punishment_type: str | None = Field(default=None, max_length=50)
-    details: str | None = Field(default=None, max_length=255)
 
 
 class TrialPunishmentCreateResponse(SchemaModel):
@@ -439,15 +420,6 @@ class TrialDetailResponse(SchemaModel):
     """Response: Complete trial with all associated punishments."""
     trial: TrialRead
     punishments: list[PunishmentRead] = Field(default_factory=list)
-
-
-class CaseEvidenceWitnessSuspectResponse(SchemaModel):
-    """Response: Case with evidence, witnesses, and suspects."""
-    case_id: int = Field(..., gt=0)
-    open_date: date
-    evidence: list[EvidenceRead] = Field(default_factory=list)
-    witnesses: list[WitnessRead] = Field(default_factory=list)
-    suspects: list[SuspectRead] = Field(default_factory=list)
 
 
 class CrimeHotspotQuery(SchemaModel):
@@ -510,6 +482,7 @@ __all__ = [
     "CaseVictimCreateRequest",
     "CaseVictimCreateResponse",
     "CaseVictimListResponse",
+    "VictimListResponse",
     "VictimRead",
     "CaseTrialListResponse",
     "TrialCreateRequest",
@@ -521,7 +494,6 @@ __all__ = [
     "TrialDetailResponse",
     "TrialRead",
     "PunishmentRead",
-    "CaseEvidenceWitnessSuspectResponse",
     "CrimeHotspotQuery",
     "CrimeHotspotItem",
     "CrimeHotspotResponse",

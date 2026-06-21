@@ -26,6 +26,7 @@ from App.schema.case import (
     CaseVictimCreateRequest,
     CaseVictimCreateResponse,
     CaseVictimListResponse,
+    VictimListResponse,
     VictimRead,
 )
 from App.schema.core import PageMeta
@@ -136,7 +137,7 @@ def list_victims(
     query: str | None = None,
     page: int = 1,
     page_size: int = 20,
-) -> dict:
+) -> VictimListResponse:
     """Global victim list with optional name filter."""
     q = db.query(Victim).join(Person, Person.person_id == Victim.victim_person_id)
 
@@ -151,7 +152,7 @@ def list_victims(
         )
 
     items, total = paginate(q, page, page_size)
-    return {
-        "items": [_victim_read(v) for v in items],
-        "meta": PageMeta(page=page, page_size=page_size, total=total),
-    }
+    return VictimListResponse(
+        items=[_victim_read(v) for v in items],
+        meta=PageMeta(page=page, page_size=page_size, total=total),
+    )

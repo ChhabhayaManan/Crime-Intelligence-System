@@ -14,6 +14,7 @@ The analytics endpoints inside system_router protect themselves.
 from fastapi import APIRouter
 
 from App.API.Routing import (
+    addresses_router,
     cases_router,
     evidence_router,
     persons_router,
@@ -26,13 +27,14 @@ from App.API.Routing import (
 
 api_router = APIRouter()
 
-# People -- router-level login + RBAC required
+# People 
+api_router.include_router(addresses_router)
 api_router.include_router(persons_router)
 
-# Case lifecycle -- router-level login + RBAC required
+# Case lifecycle 
 api_router.include_router(cases_router)
 
-# Case-scoped entities -- router-level login + RBAC required
+# Case-scoped entities 
 api_router.include_router(evidence_router)
 api_router.include_router(witnesses_router)
 api_router.include_router(suspects_router)

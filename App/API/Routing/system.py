@@ -5,7 +5,6 @@ FastAPI router for Analytics and Authentication endpoints.
 
 Analytics
 ---------
-  GET  /cases/{case_id}/snapshot    - case snapshot (evidence + witnesses + suspects)
   GET  /analytics/hotspots          - crime hotspot aggregation
 
 Auth
@@ -15,15 +14,13 @@ Auth
   POST /auth/change-password        - change password (requires valid JWT)
 """
 
-from datetime import date
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from datetime import date
 
 from App.API.deps import get_db
 from App.CRUD.auth import get_current_active_user
 from App.db.models import AppUser
 from App.schema.case import (
-    CaseEvidenceWitnessSuspectResponse,
     CrimeHotspotQuery,
     CrimeHotspotResponse,
 )
@@ -34,10 +31,7 @@ from App.schema.core import (
     UserOut,
     UserRegisterRequest,
 )
-from App.CRUD.analytics import (
-    get_case_evidence_witness_suspect,
-    get_crime_hotspots,
-)
+from App.CRUD.analytics import get_crime_hotspots
 from App.CRUD.auth import (
     change_password,
     login_user,
@@ -50,19 +44,6 @@ router = APIRouter(tags=["system"])
 # ---------------------------------------------------------------------------
 # Analytics
 # ---------------------------------------------------------------------------
-
-@router.get("/cases/{case_id}/snapshot", response_model=CaseEvidenceWitnessSuspectResponse)
-def case_snapshot_endpoint(
-    case_id: int,
-    open_date: date | None = Query(default=None),
-    db=Depends(get_db),
-):
-    """Return a combined snapshot of a case's evidence, witnesses, and suspects."""
-    try:
-        return get_case_evidence_witness_suspect(db, case_id, open_date)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
-
 
 @router.get("/analytics/hotspots", response_model=CrimeHotspotResponse)
 def crime_hotspots_endpoint(

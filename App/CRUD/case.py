@@ -102,8 +102,6 @@ def _evidence_row(cf: CollectedFor) -> EvidenceRead:
         description=ev.description,
         collection_date=ev.collection_date,
         location_id=ev.location_id,
-        evidence_type=None,
-        collected_by=None,
     )
 
 
@@ -117,7 +115,6 @@ def _suspect_row(inv: InvolvedIn) -> SuspectRead:
         physical_description=s.physical_description,
         family_contact=s.family_contact,
         arrest_status=SuspectStatus(s.arrest_status) if s.arrest_status else None,
-        reason=None,
         linked_evidence_ids=linked_ev,
     )
 
@@ -147,13 +144,13 @@ def _witness_row(ti: TestifiesIn) -> WitnessRead:
 def _testimony_rows(case: CaseDetail) -> list[TestimonyRead]:
     return [
         TestimonyRead(
-            testimony_id=tid,
+            testimony_id=ti.witness_person_id,
             witness_id=ti.witness_person_id,
             case_id=ti.case_id,
             testimony_text=ti.witness.testimony or "",
             pointed_suspects=[pt.suspect_person_id for pt in ti.pointed_to_entries],
         )
-        for tid, ti in enumerate(case.testifies_in_entries, start=1)
+        for ti in case.testifies_in_entries
     ]
 
 
@@ -210,6 +207,12 @@ def update_case(
     """Partially update a case record."""
     case = fetch_case(db, case_id, open_date)
 
+    if payload.status is not None:
+        if case.case_status == CaseStatus.CLOSED.value:
+            raise ValueError("Cannot update a closed case. Use the /close endpoint.")
+        if payload.status == CaseStatus.CLOSED and payload.end_date is None and case.end_date is None:
+            case.end_date = date.today()
+
     if payload.summary is not None:
         case.complaint_detail = payload.summary
     if payload.crime_type is not None:
@@ -243,8 +246,6 @@ def close_case(
     case = fetch_case(db, case_id, open_date)
     case.case_status = CaseStatus.CLOSED.value
     case.end_date = payload.closed_at or date.today()
-    if payload.closing_summary:
-        case.complaint_detail = payload.closing_summary
 
     db.commit()
     db.refresh(case)
@@ -253,7 +254,6 @@ def close_case(
         open_date=case.open_date,
         status=CaseStatus.CLOSED,
         end_date=case.end_date,
-        closing_summary=case.complaint_detail,
     )
 
 
@@ -267,12 +267,12 @@ def list_cases(db: Session, query: CaseListQuery) -> CaseListResponse:
         q = q.filter(CaseDetail.case_status == query.status.value)
 
     if query.from_date:
-        q = q.filter(CaseDetail.open_date >= query.from_date)
+        q = q.filter(CaseDetail.crime_date >= query.from_date)
     if query.to_date:
-        q = q.filter(CaseDetail.open_date <= query.to_date)
+        q = q.filter(CaseDetail.crime_date <= query.to_date)
 
     if query.city:
-        q = q.join(Address, Address.address_id == CaseDetail.crime_location, isouter=True)
+        q = q.join(Address, Address.address_id == CaseDetail.crime_location)
         q = q.filter(Address.city.ilike(f"%{query.city}%"))
 
     # Sorting

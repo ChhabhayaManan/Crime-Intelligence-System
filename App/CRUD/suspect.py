@@ -54,7 +54,6 @@ def _suspect_read(suspect: Suspect) -> SuspectRead:
         arrest_status=(
             SuspectStatus(suspect.arrest_status) if suspect.arrest_status else None
         ),
-        reason=None,
         linked_evidence_ids=linked,
     )
 
@@ -110,12 +109,15 @@ def add_case_suspect(
         db.add(inv)
         db.flush()
 
-    # Link evidence
+    # Link evidence — fail fast on invalid IDs
+    bad_ids = []
     for ev_id in payload.evidence_ids:
         try:
             link_suspect_evidence(db, case.case_id, person_id, ev_id, case.open_date)
         except ValueError:
-            pass  # Evidence not yet collected for case — silently skip
+            bad_ids.append(ev_id)
+    if bad_ids:
+        raise ValueError(f"Evidence IDs not collected for case {case_id}: {bad_ids}")
 
     db.commit()
     db.refresh(suspect)
@@ -152,8 +154,19 @@ def update_case_suspect(
     open_date: date | None = None,
 ) -> CaseSuspectUpdateResponse:
     """Update suspect arrest status, physical description, bail info."""
-    # Validate the case exists
-    fetch_case(db, case_id, open_date)
+    case = fetch_case(db, case_id, open_date)
+
+    inv = (
+        db.query(InvolvedIn)
+        .filter(
+            InvolvedIn.case_id == case.case_id,
+            InvolvedIn.open_date == case.open_date,
+            InvolvedIn.suspect_person_id == suspect_id,
+        )
+        .first()
+    )
+    if inv is None:
+        raise ValueError(f"Suspect {suspect_id} is not linked to case {case_id}.")
 
     suspect = db.get(Suspect, suspect_id)
     if suspect is None:

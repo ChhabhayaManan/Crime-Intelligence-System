@@ -20,12 +20,15 @@ class AddressBase(SchemaModel):
     street_address: str | None = Field(default=None, max_length=255)
     city: str | None = Field(default=None, max_length=100)
     state: str | None = Field(default=None, max_length=100)
-    postal_code: str | None = Field(default=None, max_length=20)
+    pin_code: str | None = Field(default=None, max_length=20)
     country: str | None = Field(default=None, max_length=100)
 
 
 class AddressCreate(AddressBase):
-    pass
+    city: str = Field(..., max_length=100)
+    state: str = Field(..., max_length=100)
+    pin_code: str = Field(..., max_length=20)
+    country: str = Field(..., max_length=100)
 
 
 class AddressUpdate(AddressBase):
@@ -35,6 +38,12 @@ class AddressUpdate(AddressBase):
 class AddressRead(AddressBase):
     """Response: Address with ID from database."""
     address_id: int = Field(..., gt=0)
+
+
+class AddressListResponse(SchemaModel):
+    """Response: Paginated address list."""
+    items: list[AddressRead] = Field(default_factory=list)
+    meta: PageMeta = Field(default_factory=PageMeta)
 
 
 # --------------Person Schemas--------------
@@ -120,7 +129,6 @@ class PersonRead(PersonBase):
     person_id: int = Field(..., gt=0)
     address_id: int | None = Field(default=None, gt=0)
     address: AddressRead | None = None
-    linked_addresses: list[AddressRead] = Field(default_factory=list)
     roles: list[PersonRole] = Field(default_factory=list)
     role_details: PersonRoleDetails = Field(default_factory=PersonRoleDetails)
 
@@ -131,13 +139,9 @@ class PersonCreateResponse(SchemaModel):
     summary: PersonSummary
 
 
-class PersonListItem(PersonSummary):
-    pass
-
-
 class PersonListResponse(SchemaModel):
     """Response: Paginated person list."""
-    items: list[PersonListItem] = Field(default_factory=list)
+    items: list[PersonSummary] = Field(default_factory=list)
     meta: PageMeta = Field(default_factory=PageMeta)
 
 #--------------Person Role Schemas--------------
@@ -226,13 +230,13 @@ __all__ = [
     "AddressCreate",
     "AddressUpdate",
     "AddressRead",
+    "AddressListResponse",
     "PersonBase",
     "PersonCreate",
     "PersonUpdate",
     "PersonSummary",
     "PersonRead",
     "PersonCreateResponse",
-    "PersonListItem",
     "PersonListResponse",
     "PersonRoleDetails",
     "PoliceOfficerDetails",

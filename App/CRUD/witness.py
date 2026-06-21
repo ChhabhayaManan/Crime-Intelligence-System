@@ -200,11 +200,9 @@ def record_testimony(
     db.refresh(ti)
 
     pointed = [pt.suspect_person_id for pt in ti.pointed_to_entries]
-    # Use synthetic id based on witness+case for stability
-    testimony_id = hash((case.case_id, case.open_date, witness_id)) % 2**31
 
     return TestimonyRead(
-        testimony_id=abs(testimony_id),
+        testimony_id=witness_id,
         witness_id=witness_id,
         case_id=case.case_id,
         testimony_text=witness.testimony or "",
@@ -226,10 +224,9 @@ def list_case_testimonies(
         if w is None:
             continue
         pointed = [pt.suspect_person_id for pt in ti.pointed_to_entries]
-        tid = abs(hash((ti.case_id, ti.open_date, ti.witness_person_id)) % 2**31)
         result.append(
             TestimonyRead(
-                testimony_id=tid,
+                testimony_id=ti.witness_person_id,
                 witness_id=ti.witness_person_id,
                 case_id=ti.case_id,
                 testimony_text=w.testimony or "",

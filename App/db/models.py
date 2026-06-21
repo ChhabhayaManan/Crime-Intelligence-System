@@ -23,7 +23,7 @@ class Address(Base):
     street_address: Mapped[Optional[str]] = mapped_column(String(255))
     city: Mapped[Optional[str]] = mapped_column(String(100))
     state: Mapped[Optional[str]] = mapped_column(String(100))
-    postal_code: Mapped[Optional[str]] = mapped_column(String(20))
+    pin_code: Mapped[Optional[str]] = mapped_column("postal_code", String(20))
     country: Mapped[Optional[str]] = mapped_column(String(100))
 
     residents: Mapped[list["Person"]] = relationship(back_populates="address")

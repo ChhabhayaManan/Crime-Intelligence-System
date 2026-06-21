@@ -21,7 +21,7 @@ Person
 
 from __future__ import annotations
 from datetime import date
-from sqlalchemy import or_
+from sqlalchemy import or_, tuple_
 from sqlalchemy.orm import Session
 from App.db.models import *
 from App.schema.core import *
@@ -41,7 +41,7 @@ def create_address(db: Session, payload: AddressCreate) -> AddressRead:
         street_address=payload.street_address,
         city=payload.city,
         state=payload.state,
-        postal_code=payload.postal_code,
+        pin_code=payload.pin_code,
         country=payload.country,
     )
     db.add(addr)
@@ -78,7 +78,7 @@ def list_addresses(
     country: str | None = None,
     page: int = 1,
     page_size: int = 20,
-) -> dict:
+) -> AddressListResponse:
     """Return a paginated list of addresses, with optional city / country filters."""
     q = db.query(Address)
     if city:
@@ -87,10 +87,10 @@ def list_addresses(
         q = q.filter(Address.country.ilike(f"%{country}%"))
 
     items, total = paginate(q, page, page_size)
-    return {
-        "items": [AddressRead.model_validate(a) for a in items],
-        "meta": PageMeta(page=page, page_size=page_size, total=total),
-    }
+    return AddressListResponse(
+        items=[AddressRead.model_validate(a) for a in items],
+        meta=PageMeta(page=page, page_size=page_size, total=total),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +171,6 @@ def _build_person_read(person: Person) -> PersonRead:
         contact_number=person.contact_number,
         address_id=person.address_id,
         address=AddressRead.model_validate(person.address) if person.address else None,
-        linked_addresses=[],
         roles=roles,
         role_details=_build_role_details(person),
     )
@@ -306,7 +305,7 @@ def list_persons(
 
     return PersonListResponse(
         items=[
-            PersonListItem.model_validate(build_person_summary(p)) for p in items
+            PersonSummary.model_validate(build_person_summary(p)) for p in items
         ],
         meta=PageMeta(page=page, page_size=page_size, total=total),
     )
@@ -344,13 +343,20 @@ def get_person_cases(db: Session, person_id: int) -> list[dict]:
         for ti in person.witness_profile.testifies_in_cases:
             _add(ti.case_id, ti.open_date, "witness")
 
+    if not case_roles:
+        return []
+
+    pairs = list(case_roles.keys())
+    cases = (
+        db.query(CaseDetail)
+        .filter(tuple_(CaseDetail.case_id, CaseDetail.open_date).in_(pairs))
+        .all()
+    )
+    case_map = {(c.case_id, c.open_date): c for c in cases}
+
     results = []
     for (cid, odate), roles in sorted(case_roles.items()):
-        case = (
-            db.query(CaseDetail)
-            .filter(CaseDetail.case_id == cid, CaseDetail.open_date == odate)
-            .first()
-        )
+        case = case_map.get((cid, odate))
         if case:
             results.append(
                 {
