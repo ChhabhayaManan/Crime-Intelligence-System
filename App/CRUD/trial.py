@@ -58,6 +58,16 @@ def trial_read(trial: Trial) -> TrialRead:
     )
 
 
+def _derive_punishment_type(p: Punishment) -> str | None:
+    if p.death_penalty == "Y":
+        return "death_penalty"
+    if p.jail_start_date is not None or p.jail_end_date is not None:
+        return "jail"
+    if p.fine is not None:
+        return "fine"
+    return None
+
+
 def _punishment_read(p: Punishment) -> PunishmentRead:
     return PunishmentRead(
         criminal_person_id=p.criminal_person_id,
@@ -67,8 +77,7 @@ def _punishment_read(p: Punishment) -> PunishmentRead:
         jail_start_date=p.jail_start_date,
         jail_end_date=p.jail_end_date,
         death_penalty=p.death_penalty,
-        punishment_type=None,
-        details=None,
+        punishment_type=_derive_punishment_type(p),
     )
 
 
@@ -121,27 +130,35 @@ def add_trial_hearing(
     trial_id: int,
     payload: TrialHearingCreateRequest,
 ) -> TrialHearingCreateResponse:
-    """Update hearing date and append outcome/notes to court_level. Does not commit."""
-    trial = fetch_trial(db, case_id, trial_id)
+    """Record a hearing on a trial. If the trial already has a hearing date set, creates a new trial row for this hearing."""
+    existing = fetch_trial(db, case_id, trial_id)
 
-    if payload.recorded_at is not None:
-        trial.hearing = payload.recorded_at.date() if hasattr(payload.recorded_at, "date") else payload.recorded_at
+    if existing.hearing is not None:
+        # Trial already has a hearing — create next trial for this hearing
+        trial_num = next_trial_number(db, existing.case_id, existing.open_date)
+        trial = Trial(
+            case_id=existing.case_id,
+            open_date=existing.open_date,
+            trial_number=trial_num,
+            judge_id=existing.judge_id,
+            court_level=existing.court_level,
+        )
+        db.add(trial)
+        db.flush()
+    else:
+        trial = existing
+        trial_num = existing.trial_number
 
-    # Append outcome note to court_level for now (schema constraint)
-    if payload.outcome or payload.hearing_notes:
-        note_parts = []
-        if payload.hearing_notes:
-            note_parts.append(f"Notes:{payload.hearing_notes}")
-        if payload.outcome:
-            note_parts.append(f"Outcome:{payload.outcome}")
-        combined = " | ".join(note_parts)
-        trial.court_level = (trial.court_level or "") + f" [{combined}]"
-        trial.court_level = trial.court_level[:50]  # respect VARCHAR(50)
+    if payload.hearing_date is not None:
+        trial.hearing = payload.hearing_date
+
+    if payload.outcome is not None:
+        trial.court_level = payload.outcome[:50]
 
     db.commit()
     db.refresh(trial)
 
-    return TrialHearingCreateResponse(trial_id=trial_id, trial=trial_read(trial))
+    return TrialHearingCreateResponse(trial_id=trial_num, trial=trial_read(trial))
 
 
 def get_trial_detail(
