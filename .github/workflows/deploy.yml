@@ -18,6 +18,7 @@ env:
   ECS_SERVICE: crime-is-service
   ECS_TASK_FAMILY: crime-is-app
   CONTAINER_NAME: app
+  ALB_NAME: crime-is-alb
 
 jobs:
   build-push:
@@ -176,3 +177,61 @@ jobs:
           cluster: ${{ env.ECS_CLUSTER }}
           service: ${{ env.ECS_SERVICE }}
           wait-for-service-stability: true
+
+  health-check:
+    name: health-check
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve app base URL
+        id: url
+        env:
+          OVERRIDE_URL: ${{ vars.APP_BASE_URL }}
+        run: |
+          set -euo pipefail
+          # Prefer an explicit repo var (e.g. once HTTPS/a domain exists); else
+          # discover the public ALB DNS (matches how `migrate` resolves network).
+          if [ -n "${OVERRIDE_URL}" ]; then
+            BASE="${OVERRIDE_URL%/}"
+          else
+            DNS=$(aws elbv2 describe-load-balancers \
+              --names "${ALB_NAME}" \
+              --query 'LoadBalancers[0].DNSName' --output text)
+            if [ -z "${DNS}" ] || [ "${DNS}" = "None" ]; then
+              echo "Failed to resolve ALB DNS for '${ALB_NAME}'" >&2
+              exit 1
+            fi
+            BASE="http://${DNS}"
+          fi
+          echo "base=${BASE}" >> "$GITHUB_OUTPUT"
+
+      - name: Check /health/ready
+        env:
+          BASE: ${{ steps.url.outputs.base }}
+        run: |
+          set -euo pipefail
+          URL="${BASE}/health/ready"
+          echo "Probing ${URL}"
+          # 200 = ok or degraded (reader/S3 non-fatal); 503 = unhealthy
+          # (writer/ORM down) and must fail the deploy. Retry to absorb the
+          # brief settle window after the service reaches stability.
+          CODE="000"
+          for i in $(seq 1 10); do
+            CODE=$(curl -sS -o /tmp/ready_body -w '%{http_code}' --max-time 10 "${URL}" || echo "000")
+            echo "Attempt ${i}/10: HTTP ${CODE}"
+            cat /tmp/ready_body 2>/dev/null || true
+            echo
+            if [ "${CODE}" = "200" ]; then
+              echo "Readiness OK."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "Readiness check failed after retries (last HTTP ${CODE})" >&2
+          exit 1
