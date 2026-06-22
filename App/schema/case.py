@@ -176,6 +176,9 @@ class EvidenceRead(SchemaModel):
     description: str | None = Field(default=None, max_length=255)
     collection_date: date | None = None
     location_id: int | None = Field(default=None, gt=0)
+    file_key: str | None = None
+    file_content_type: str | None = None
+    file_size: int | None = Field(default=None, ge=0)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

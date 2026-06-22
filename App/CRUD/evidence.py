@@ -12,7 +12,11 @@ Functions
 """
 
 from __future__ import annotations
+import os
 from datetime import date
+from uuid import uuid4
+
+import boto3
 from sqlalchemy.orm import Session
 from App.db.models import (
     CollectedFor,
@@ -38,6 +42,9 @@ def _ev_read(ev: Evidence, case_id: int, open_date: date) -> EvidenceRead:
         description=ev.description,
         collection_date=ev.collection_date,
         location_id=ev.location_id,
+        file_key=ev.file_key,
+        file_content_type=ev.file_content_type,
+        file_size=ev.file_size,
     )
 
 
@@ -102,6 +109,59 @@ def get_evidence(db: Session, evidence_id: int) -> EvidenceRead:
     ev = db.get(Evidence, evidence_id)
     if ev is None:
         not_found("Evidence", evidence_id)
+
+    cf = ev.collected_for_entries[0] if ev.collected_for_entries else None  # type: ignore[union-attr]
+    if cf is None:
+        raise ValueError(f"Evidence {evidence_id} has no associated case.")
+
+    return _ev_read(ev, cf.case_id, cf.open_date)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Evidence file storage (S3)
+# ---------------------------------------------------------------------------
+
+def upload_evidence_file(
+    content: bytes,
+    evidence_id: int,
+    content_type: str,
+    ext: str,
+) -> str:
+    """Upload an evidence file to the S3 evidence bucket and return its key.
+
+    Credentials are resolved from the ECS task role — none are stored in code.
+    """
+    bucket = os.environ["S3_EVIDENCE_BUCKET"]
+    key = f"evidence/{evidence_id}/{uuid4().hex}.{ext}"
+
+    boto3.client("s3").put_object(
+        Bucket=bucket,
+        Key=key,
+        Body=content,
+        ContentType=content_type,
+        ServerSideEncryption="AES256",
+    )
+    return key
+
+
+def attach_evidence_file(
+    db: Session,
+    evidence_id: int,
+    key: str,
+    content_type: str,
+    size: int,
+) -> EvidenceRead:
+    """Persist file metadata onto an existing evidence row."""
+    ev = db.get(Evidence, evidence_id)
+    if ev is None:
+        not_found("Evidence", evidence_id)
+
+    ev.file_key = key  # type: ignore[union-attr]
+    ev.file_content_type = content_type  # type: ignore[union-attr]
+    ev.file_size = size  # type: ignore[union-attr]
+
+    db.commit()
+    db.refresh(ev)
 
     cf = ev.collected_for_entries[0] if ev.collected_for_entries else None  # type: ignore[union-attr]
     if cf is None:

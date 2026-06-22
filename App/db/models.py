@@ -280,6 +280,10 @@ class Evidence(Base):
         ForeignKey("address.address_id")
     )
 
+    file_key: Mapped[Optional[str]] = mapped_column(String)
+    file_content_type: Mapped[Optional[str]] = mapped_column(String)
+    file_size: Mapped[Optional[int]] = mapped_column(Integer)
+
     location: Mapped[Optional["Address"]] = relationship()
 
     collected_for_entries: Mapped[list["CollectedFor"]] = relationship(
