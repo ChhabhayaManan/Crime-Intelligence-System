@@ -13,8 +13,6 @@ provider "aws" {
 }
 
 locals {
-  # Full app connection string; writer endpoint + custom port from RDS.
-  database_url    = "postgresql://${module.rds.db_username}:${var.db_password}@${module.rds.writer_address}:${module.rds.port}/${module.rds.db_name}"
   container_image = "${module.ecr.repository_url}:${var.image_tag}"
 }
 
@@ -42,8 +40,6 @@ module "rds" {
 module "secrets" {
   source       = "./modules/secrets"
   project_name = var.project_name
-  database_url = local.database_url
-  jwt_secret   = var.jwt_secret
 }
 
 module "iam" {

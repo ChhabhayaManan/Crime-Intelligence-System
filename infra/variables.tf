@@ -16,12 +16,6 @@ variable "db_password" {
   sensitive = true
 }
 
-# JWT signing secret. No default — set in gitignored terraform.tfvars.
-variable "jwt_secret" {
-  type      = string
-  sensitive = true
-}
-
 # Evidence S3 bucket name. Must be globally unique; suffix if taken.
 # Shared by the s3 (creates it), iam (builds its ARN), and ecs (env var) modules.
 variable "evidence_bucket_name" {

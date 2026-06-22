@@ -68,6 +68,13 @@ resource "aws_db_instance" "primary" {
   skip_final_snapshot = true
   deletion_protection = false
 
+  # The live password is the source of truth (the app reads it via the frozen
+  # DATABASE_URL secret). var.db_password only seeds the instance at creation;
+  # ignore it afterwards so plan never drifts/resets the password.
+  lifecycle {
+    ignore_changes = [password]
+  }
+
   tags = {
     Name = "${var.project_name}-db"
   }

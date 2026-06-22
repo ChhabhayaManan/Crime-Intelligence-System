@@ -174,6 +174,13 @@ resource "aws_ecs_service" "app" {
   # Give the container time to boot before the ALB starts failing it.
   health_check_grace_period_seconds = 60
 
+  # CI (deploy.yml) registers new task-def revisions and rolls the service on
+  # every app deploy. Terraform only knows the revision it created, so without
+  # this it would revert the service to an older task def on the next apply.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
+
   tags = {
     Name = "${var.project_name}-service"
   }
