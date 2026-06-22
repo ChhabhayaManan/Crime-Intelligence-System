@@ -87,6 +87,11 @@ resource "aws_db_instance" "replica" {
   multi_az            = false
   publicly_accessible = false
 
+  # Same-region replica inherits encryption from the source. Declare it to
+  # match the API value, else Terraform reads true vs unset(null) and forces
+  # replacement on every plan.
+  storage_encrypted = true
+
   vpc_security_group_ids = [aws_security_group.rds.id]
 
   skip_final_snapshot = true

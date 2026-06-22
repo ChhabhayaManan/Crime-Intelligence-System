@@ -27,5 +27,5 @@ variable "log_group_name" {
 # GitHub repo allowed to assume the deploy role (owner/repo).
 variable "github_repo" {
   type    = string
-  default = "ChhabhayaManan/Crime-Tracking-and-Analysis-Database"
+  default = "ChhabhayaManan/Crime-Intelligence-System"
 }
