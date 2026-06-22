@@ -53,9 +53,6 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api/v1")
 
 
-# ---------------------------------------------------------------------------
-# Health endpoints (public, no /api/v1 prefix)
-# ---------------------------------------------------------------------------
 
 @app.get("/health")
 def health():

@@ -194,6 +194,14 @@ data "aws_iam_policy_document" "github_actions" {
     resources = [local.ecs_task_arn]
   }
 
+  # Post-deploy health-check job resolves the public ALB DNS to hit
+  # /health/ready. DescribeLoadBalancers has no resource-level scoping.
+  statement {
+    sid       = "ElbDescribe"
+    actions   = ["elasticloadbalancing:DescribeLoadBalancers"]
+    resources = ["*"]
+  }
+
   # Hand the task + execution roles to ECS when registering/running tasks.
   statement {
     sid       = "PassEcsRoles"
