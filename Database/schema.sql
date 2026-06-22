@@ -86,9 +86,12 @@ CREATE TABLE Witness (
 );
 
 CREATE TABLE Evidence (
-    evidence_id     INT PRIMARY KEY NOT NULL,
-    description     VARCHAR(255),
-    collection_date DATE
+    evidence_id       INT PRIMARY KEY NOT NULL,
+    description       VARCHAR(255),
+    collection_date   DATE,
+    file_key          VARCHAR,
+    file_content_type VARCHAR,
+    file_size         INTEGER
 );
 
 ALTER TABLE Evidence

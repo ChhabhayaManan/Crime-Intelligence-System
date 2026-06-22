@@ -1,0 +1,178 @@
+name: deploy
+
+# Build -> migrate -> deploy on push to main. OIDC -> least-privilege deploy role.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write # required for OIDC role assumption
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  DEPLOY_ROLE_ARN: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/Crime-IS-github-actions-deploy-role
+  ECR_REPOSITORY: cis-image
+  ECS_CLUSTER: crime-is-cluster
+  ECS_SERVICE: crime-is-service
+  ECS_TASK_FAMILY: crime-is-app
+  CONTAINER_NAME: app
+
+jobs:
+  build-push:
+    name: build-push
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+      image_tag: ${{ steps.vars.outputs.image_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Image tag from git SHA
+        id: vars
+        run: echo "image_tag=git-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push image
+        id: build
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
+        run: |
+          IMAGE="${REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          docker build -t "$IMAGE" -t "${REGISTRY}/${ECR_REPOSITORY}:latest" .
+          docker push "$IMAGE"
+          docker push "${REGISTRY}/${ECR_REPOSITORY}:latest"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+  migrate:
+    name: migrate
+    needs: build-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve network configuration
+        id: net
+        env:
+          OVERRIDE_SUBNETS: ${{ vars.PRIVATE_SUBNET_IDS }}
+          OVERRIDE_SG: ${{ vars.ECS_TASK_SG_ID }}
+        run: |
+          set -euo pipefail
+          if [ -n "${OVERRIDE_SUBNETS}" ]; then
+            SUBNETS="${OVERRIDE_SUBNETS}"
+          else
+            SUBNETS=$(aws ec2 describe-subnets \
+              --filters "Name=tag:Tier,Values=private" \
+              --query 'Subnets[].SubnetId' --output text | tr '\t' ',')
+          fi
+          if [ -n "${OVERRIDE_SG}" ]; then
+            SG="${OVERRIDE_SG}"
+          else
+            SG=$(aws ec2 describe-security-groups \
+              --filters "Name=tag:Name,Values=Crime-IS-ecs-sg" \
+              --query 'SecurityGroups[0].GroupId' --output text)
+          fi
+          if [ -z "${SUBNETS}" ] || [ "${SG}" = "None" ] || [ -z "${SG}" ]; then
+            echo "Failed to resolve subnets ('${SUBNETS}') or SG ('${SG}')" >&2
+            exit 1
+          fi
+          echo "subnets=${SUBNETS}" >> "$GITHUB_OUTPUT"
+          echo "sg=${SG}" >> "$GITHUB_OUTPUT"
+
+      - name: Run migration task
+        id: runtask
+        env:
+          IMAGE_TAG: ${{ needs.build-push.outputs.image_tag }}
+          SUBNETS: ${{ steps.net.outputs.subnets }}
+          SG: ${{ steps.net.outputs.sg }}
+        run: |
+          set -euo pipefail
+          OVERRIDES=$(cat <<JSON
+          {"containerOverrides":[{"name":"${CONTAINER_NAME}","command":["python","-m","App.db.setup_db"]}]}
+          JSON
+          )
+          NETCFG="awsvpcConfiguration={subnets=[${SUBNETS}],securityGroups=[${SG}],assignPublicIp=DISABLED}"
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "${ECS_CLUSTER}" \
+            --task-definition "${ECS_TASK_FAMILY}" \
+            --launch-type FARGATE \
+            --network-configuration "${NETCFG}" \
+            --overrides "${OVERRIDES}" \
+            --query 'tasks[0].taskArn' --output text)
+          if [ -z "${TASK_ARN}" ] || [ "${TASK_ARN}" = "None" ]; then
+            echo "run-task did not return a task ARN" >&2
+            exit 1
+          fi
+          echo "task_arn=${TASK_ARN}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for migration to finish and check exit code
+        env:
+          TASK_ARN: ${{ steps.runtask.outputs.task_arn }}
+        run: |
+          set -euo pipefail
+          aws ecs wait tasks-stopped --cluster "${ECS_CLUSTER}" --tasks "${TASK_ARN}"
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster "${ECS_CLUSTER}" --tasks "${TASK_ARN}" \
+            --query "tasks[0].containers[?name=='${CONTAINER_NAME}'].exitCode | [0]" \
+            --output text)
+          REASON=$(aws ecs describe-tasks \
+            --cluster "${ECS_CLUSTER}" --tasks "${TASK_ARN}" \
+            --query 'tasks[0].stoppedReason' --output text)
+          echo "Migration container exit code: ${EXIT_CODE} (stoppedReason: ${REASON})"
+          if [ "${EXIT_CODE}" != "0" ]; then
+            echo "Migration failed (exit ${EXIT_CODE})" >&2
+            exit 1
+          fi
+
+  deploy:
+    name: deploy
+    needs: [build-push, migrate]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Render new task definition with the new image
+        id: taskdef
+        env:
+          IMAGE: ${{ needs.build-push.outputs.image }}
+        run: |
+          set -euo pipefail
+          aws ecs describe-task-definition \
+            --task-definition "${ECS_TASK_FAMILY}" \
+            --query 'taskDefinition' --output json > taskdef-current.json
+          jq --arg IMAGE "${IMAGE}" --arg NAME "${CONTAINER_NAME}" '
+            .containerDefinitions = (.containerDefinitions | map(
+              if .name == $NAME then .image = $IMAGE else . end
+            ))
+            | del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                  .compatibilities, .registeredAt, .registeredBy)
+          ' taskdef-current.json > taskdef-new.json
+          echo "taskdef=taskdef-new.json" >> "$GITHUB_OUTPUT"
+
+      - name: Register and deploy
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.taskdef.outputs.taskdef }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          service: ${{ env.ECS_SERVICE }}
+          wait-for-service-stability: true

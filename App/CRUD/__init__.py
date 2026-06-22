@@ -97,7 +97,6 @@ from .trial import (
 
 # ---- analytics ----
 from .analytics import (
-    get_case_evidence_witness_suspect,
     get_crime_hotspots,
 )
 
@@ -168,7 +167,6 @@ __all__ = [
     "apply_trial_punishment",
     "trial_read",
     # analytics
-    "get_case_evidence_witness_suspect",
     "get_crime_hotspots",
     # auth
     "login_user",
