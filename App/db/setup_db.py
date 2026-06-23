@@ -35,6 +35,30 @@ def _read_sql_file(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+_CHAR_TO_VARCHAR = [
+    ("person",         "gender",           "VARCHAR(1)"),
+    ("person",         "contact_number",   "VARCHAR(15)"),
+    ("case_details",   "crime_type",       "VARCHAR(50)"),
+    ("case_details",   "case_status",      "VARCHAR(10)"),
+    ("police_officer", "rank",             "VARCHAR(50)"),
+    ("police_officer", "department",       "VARCHAR(100)"),
+    ("criminal",       "c_family_contact", "VARCHAR(15)"),
+    ("suspect",        "family_contact",   "VARCHAR(15)"),
+    ("suspect",        "arrest_status",    "VARCHAR(50)"),
+    ("victim",         "family_contact",   "VARCHAR(15)"),
+    ("witness",        "family_contact",   "VARCHAR(15)"),
+    ("punishment",     "death_penalty",    "VARCHAR(1)"),
+]
+
+
+def _apply_char_to_varchar(cur) -> None:
+    """Convert any remaining CHAR columns to VARCHAR, trimming stored padding. Idempotent."""
+    for table, col, new_type in _CHAR_TO_VARCHAR:
+        cur.execute(
+            f"ALTER TABLE {table} ALTER COLUMN {col} TYPE {new_type} USING trim({col})"
+        )
+
+
 def _schema_is_populated(cur, schema_name: str) -> bool:
     cur.execute(
         "SELECT 1 FROM information_schema.tables "
@@ -68,11 +92,13 @@ def run_migration(database_url: str, schema_name: str = SCHEMA_NAME) -> bool:
             )
 
             if _schema_is_populated(cur, schema_name):
+                _apply_char_to_varchar(cur)
                 conn.commit()
                 return False
 
             cur.execute(schema_sql)
             cur.execute(seed_sql)
+            _apply_char_to_varchar(cur)
         conn.commit()
         return True
     except Exception:

@@ -15,6 +15,7 @@ Public API
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
@@ -34,6 +35,19 @@ from App.schema.core import (
     UserOut,
     UserRegisterRequest,
 )
+
+
+# ---------------------------------------------------------------------------
+# JWT config — JWT_SECRET injected from Secrets Manager in prod via ECS secrets;
+# must also be set in compose.yaml / .env for local dev.
+# ---------------------------------------------------------------------------
+
+_jwt_secret = os.getenv("JWT_SECRET")
+if not _jwt_secret:
+    raise RuntimeError("JWT_SECRET environment variable is required.")
+SECRET_KEY: str = _jwt_secret
+ALGORITHM = "HS256"
+TOKEN_EXPIRE_HOURS = 1
 
 
 # ---------------------------------------------------------------------------

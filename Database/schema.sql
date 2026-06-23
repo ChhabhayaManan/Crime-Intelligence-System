@@ -13,14 +13,14 @@ CREATE TABLE Address (
 
 CREATE TABLE Person (
     personID        INT PRIMARY KEY NOT NULL,
-    gender          CHAR(1),
+    gender          VARCHAR(1),
     birth_date      DATE,
     first_name      VARCHAR(100),
     middle_name     VARCHAR(100),
     last_name       VARCHAR(100),
     address_id      INT,
     occupation      VARCHAR(100),
-    contact_number  CHAR(15),
+    contact_number  VARCHAR(15),
     FOREIGN KEY (address_id) REFERENCES Address(address_id)
 );
 
@@ -30,9 +30,9 @@ CREATE TABLE Case_Details (
     crime_date      DATE,
     end_date        DATE,
     complaint_detail VARCHAR(255),
-    crime_type      CHAR(50),
+    crime_type      VARCHAR(50),
     crime_location  INT,
-    case_status     CHAR(10),
+    case_status     VARCHAR(10),
     personID        INT,
     PRIMARY KEY (case_id, open_date),
     FOREIGN KEY (personID) REFERENCES Person(personID),
@@ -52,35 +52,35 @@ CREATE TABLE Trial (
 
 CREATE TABLE Police_Officer (
     p_personID      INT PRIMARY KEY NOT NULL,
-    rank            CHAR(50),
-    department      CHAR(100),
+    rank            VARCHAR(50),
+    department      VARCHAR(100),
     FOREIGN KEY (p_personID) REFERENCES Person(personID)
 );
 
 CREATE TABLE Criminal (
     c_personID      INT PRIMARY KEY NOT NULL,
-    c_family_contact CHAR(15),
+    c_family_contact VARCHAR(15),
     FOREIGN KEY (c_personID) REFERENCES Person(personID)
 );
 
 CREATE TABLE Suspect (
     s_personID          INT PRIMARY KEY NOT NULL,
     physical_description VARCHAR(255),
-    family_contact      CHAR(15),
-    arrest_status       CHAR(50),
+    family_contact      VARCHAR(15),
+    arrest_status       VARCHAR(50),
     FOREIGN KEY (s_personID) REFERENCES Person(personID)
 );
 
 CREATE TABLE Victim (
     v_personID      INT PRIMARY KEY NOT NULL,
     harm_details    VARCHAR(255),
-    family_contact  CHAR(15),
+    family_contact  VARCHAR(15),
     FOREIGN KEY (v_personID) REFERENCES Person(personID)
 );
 
 CREATE TABLE Witness (
     w_personID      INT PRIMARY KEY NOT NULL,
-    family_contact  CHAR(15),
+    family_contact  VARCHAR(15),
     testimony       VARCHAR(255),
     FOREIGN KEY (w_personID) REFERENCES Person(personID)
 );
@@ -140,7 +140,7 @@ CREATE TABLE Punishment (
     fine            INT,
     jail_start_date DATE,
     jail_end_date   DATE,
-    death_penalty   CHAR(1),
+    death_penalty   VARCHAR(1),
     PRIMARY KEY (c_personID, case_id, open_date),
     FOREIGN KEY (c_personID) REFERENCES Criminal(c_personID),
     FOREIGN KEY (case_id, open_date) REFERENCES Case_Details(case_id, open_date)
