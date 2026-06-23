@@ -11,6 +11,15 @@ class CaseStatus(str, Enum):
     CLOSED = "closed"
     ON_HOLD = "on_hold"
 
+    @classmethod
+    def _missing_(cls, value: object):
+        if isinstance(value, str):
+            stripped = value.strip()
+            for member in cls:
+                if member.value == stripped:
+                    return member
+        return None
+
 class CaseInclude(str, Enum):
     """Enumeration of related data that can be included in case responses."""
     EVIDENCE = "evidence"
@@ -26,6 +35,15 @@ class SuspectStatus(str, Enum):
     WANTED = "wanted"
     ARRESTED = "arrested"
     RELEASED = "released"
+
+    @classmethod
+    def _missing_(cls, value: object):
+        if isinstance(value, str):
+            stripped = value.strip()
+            for member in cls:
+                if member.value == stripped:
+                    return member
+        return None
 
 
 class CaseSortBy(str, Enum):
