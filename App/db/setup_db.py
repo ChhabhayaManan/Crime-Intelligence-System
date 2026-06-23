@@ -51,12 +51,17 @@ _CHAR_TO_VARCHAR = [
 ]
 
 
+_LOWERCASE_COLS = {("case_details", "case_status"), ("suspect", "arrest_status")}
+
+
 def _apply_char_to_varchar(cur) -> None:
     """Convert any remaining CHAR columns to VARCHAR, trimming stored padding. Idempotent."""
     for table, col, new_type in _CHAR_TO_VARCHAR:
-        cur.execute(
-            f"ALTER TABLE {table} ALTER COLUMN {col} TYPE {new_type} USING trim({col})"
-        )
+        if (table, col) in _LOWERCASE_COLS:
+            using = f"lower(trim({col}))"
+        else:
+            using = f"trim({col})"
+        cur.execute(f"ALTER TABLE {table} ALTER COLUMN {col} TYPE {new_type} USING {using}")
 
 
 def _schema_is_populated(cur, schema_name: str) -> bool:

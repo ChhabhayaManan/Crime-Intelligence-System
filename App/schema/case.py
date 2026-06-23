@@ -14,9 +14,9 @@ class CaseStatus(str, Enum):
     @classmethod
     def _missing_(cls, value: object):
         if isinstance(value, str):
-            stripped = value.strip()
+            normalized = value.strip().lower()
             for member in cls:
-                if member.value == stripped:
+                if member.value == normalized:
                     return member
         return None
 
@@ -39,9 +39,9 @@ class SuspectStatus(str, Enum):
     @classmethod
     def _missing_(cls, value: object):
         if isinstance(value, str):
-            stripped = value.strip()
+            normalized = value.strip().lower()
             for member in cls:
-                if member.value == stripped:
+                if member.value == normalized:
                     return member
         return None
 
