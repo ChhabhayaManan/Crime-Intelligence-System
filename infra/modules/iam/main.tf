@@ -2,20 +2,22 @@ data "aws_region" "current" {}
 data "aws_caller_identity" "current" {}
 
 locals {
-  name          = lower(var.project_name)
-  account_id    = data.aws_caller_identity.current.account_id
-  region        = data.aws_region.current.name
-  log_group_arn = "arn:aws:logs:${local.region}:${local.account_id}:log-group:${var.log_group_name}:*"
+  name                   = lower(var.project_name)
+  account_id             = data.aws_caller_identity.current.account_id
+  region                 = data.aws_region.current.name
+  log_group_arn          = "arn:aws:logs:${local.region}:${local.account_id}:log-group:${var.log_group_name}:*"
+  frontend_log_group_arn = "arn:aws:logs:${local.region}:${local.account_id}:log-group:${var.frontend_log_group_name}:*"
 
   # Built from the name so iam doesn't depend on the s3 module.
   evidence_bucket_arn = "arn:aws:s3:::${var.evidence_bucket_name}"
 
   # ECS ARNs the deploy role acts on. Built by string (names are deterministic
   # in the ecs module) to avoid an iam<->ecs dependency cycle.
-  ecs_cluster_arn  = "arn:aws:ecs:${local.region}:${local.account_id}:cluster/${local.name}-cluster"
-  ecs_service_arn  = "arn:aws:ecs:${local.region}:${local.account_id}:service/${local.name}-cluster/${local.name}-service"
-  ecs_task_def_arn = "arn:aws:ecs:${local.region}:${local.account_id}:task-definition/${local.name}-app:*"
-  ecs_task_arn     = "arn:aws:ecs:${local.region}:${local.account_id}:task/${local.name}-cluster/*"
+  ecs_cluster_arn          = "arn:aws:ecs:${local.region}:${local.account_id}:cluster/${local.name}-cluster"
+  ecs_service_arn          = "arn:aws:ecs:${local.region}:${local.account_id}:service/${local.name}-cluster/${local.name}-service"
+  frontend_ecs_service_arn = "arn:aws:ecs:${local.region}:${local.account_id}:service/${local.name}-frontend-cluster/${local.name}-frontend-service"
+  ecs_task_def_arn         = "arn:aws:ecs:${local.region}:${local.account_id}:task-definition/${local.name}-app:*"
+  ecs_task_arn             = "arn:aws:ecs:${local.region}:${local.account_id}:task/${local.name}-cluster/*"
 
   # Terraform remote-state bucket (S3 backend). The terraform role needs full
   # access to read/write state and the use_lockfile lock object.
@@ -55,7 +57,7 @@ data "aws_iam_policy_document" "execution" {
     resources = ["*"]
   }
 
-  # ECR image pull: scoped to our repo only.
+  # ECR image pull: scoped to the backend + frontend repos.
   statement {
     sid = "EcrPull"
     actions = [
@@ -63,14 +65,14 @@ data "aws_iam_policy_document" "execution" {
       "ecr:GetDownloadUrlForLayer",
       "ecr:BatchGetImage",
     ]
-    resources = [var.ecr_repository_arn]
+    resources = [var.ecr_repository_arn, var.frontend_ecr_repository_arn]
   }
 
-  # CloudWatch Logs: scoped to the app log group.
+  # CloudWatch Logs: scoped to the backend + frontend log groups.
   statement {
     sid       = "Logs"
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
-    resources = [local.log_group_arn]
+    resources = [local.log_group_arn, local.frontend_log_group_arn]
   }
 
   # Secrets injected at task start: scoped to exact secret ARNs.
@@ -163,14 +165,14 @@ data "aws_iam_policy_document" "github_actions" {
       "ecr:UploadLayerPart",
       "ecr:CompleteLayerUpload",
     ]
-    resources = [var.ecr_repository_arn]
+    resources = [var.ecr_repository_arn, var.frontend_ecr_repository_arn]
   }
 
-  # Roll the service to the new task-def revision (deploy job).
+  # Roll the backend + frontend services to new task-def revisions (deploy jobs).
   statement {
     sid       = "EcsDeploy"
     actions   = ["ecs:UpdateService", "ecs:DescribeServices"]
-    resources = [local.ecs_service_arn]
+    resources = [local.ecs_service_arn, local.frontend_ecs_service_arn]
   }
 
   # Register/inspect task-def revisions. AWS does not support resource scoping

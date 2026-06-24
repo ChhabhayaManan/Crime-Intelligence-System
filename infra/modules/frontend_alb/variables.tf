@@ -6,20 +6,20 @@ variable "vpc_id" {
   type = string
 }
 
-variable "subnet_ids" {
-  type = list(string)
-}
-
 variable "vpc_cidr" {
   type = string
 }
 
+variable "public_subnet_ids" {
+  type = list(string)
+}
+
 variable "container_port" {
   type    = number
-  default = 8000
+  default = 8501
 }
 
 variable "health_check_path" {
   type    = string
-  default = "/health"
+  default = "/_stcore/health"
 }

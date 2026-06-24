@@ -2,13 +2,23 @@ locals {
   name = lower(var.project_name)
 }
 
-# DB subnet group spans both private subnets (one per AZ).
+# DB subnet group spans both dedicated data-tier subnets (one per AZ).
+#
+# NOTE: the group is given a new name (-data) so moving the DB from the app
+# subnets to the data subnets creates a NEW group rather than mutating the
+# in-use one — AWS forbids ModifyDBSubnetGroup that removes subnets a running
+# instance occupies. create_before_destroy sequences it as: build the data
+# group -> relocate/replace the instances onto it -> drop the old app group.
 resource "aws_db_subnet_group" "this" {
-  name       = "${local.name}-db-subnet"
-  subnet_ids = var.private_subnet_ids
+  name       = "${local.name}-db-subnet-data"
+  subnet_ids = var.subnet_ids
 
   tags = {
-    Name = "${var.project_name}-db-subnet"
+    Name = "${var.project_name}-db-subnet-data"
+  }
+
+  lifecycle {
+    create_before_destroy = true
   }
 }
 
@@ -71,8 +81,14 @@ resource "aws_db_instance" "primary" {
   # The live password is the source of truth (the app reads it via the frozen
   # DATABASE_URL secret). var.db_password only seeds the instance at creation;
   # ignore it afterwards so plan never drifts/resets the password.
+  #
+  # replace_triggered_by: when the subnet group is replaced (app -> data tier),
+  # RECREATE the instance instead of letting the provider attempt an in-place
+  # ModifyDBInstance subnet-group move. AWS forbids moving a DB that has a read
+  # replica, so a destroy+create (born in the data subnets) is the only path.
   lifecycle {
-    ignore_changes = [password]
+    ignore_changes       = [password]
+    replace_triggered_by = [aws_db_subnet_group.this.id]
   }
 
   tags = {
@@ -102,6 +118,13 @@ resource "aws_db_instance" "replica" {
   vpc_security_group_ids = [aws_security_group.rds.id]
 
   skip_final_snapshot = true
+
+  # Recreate (not in-place move) when the subnet group is replaced, and so the
+  # replica is torn down before the primary is recreated — RDS can't move a
+  # primary that still has a replica attached.
+  lifecycle {
+    replace_triggered_by = [aws_db_subnet_group.this.id]
+  }
 
   tags = {
     Name = "${var.project_name}-db-replica"

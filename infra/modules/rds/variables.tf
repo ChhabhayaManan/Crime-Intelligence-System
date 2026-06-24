@@ -6,7 +6,8 @@ variable "vpc_id" {
   type = string
 }
 
-variable "private_subnet_ids" {
+# Dedicated data-tier subnets (one per AZ) for 3-tier isolation.
+variable "subnet_ids" {
   type = list(string)
 }
 

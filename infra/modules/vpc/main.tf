@@ -40,7 +40,29 @@ resource "aws_subnet" "private_az1" {
 
   tags = {
     Name = "${var.project_name}-private-az1"
-    Tier = "private"
+    Tier = "app"
+  }
+}
+
+resource "aws_subnet" "frontend_az1" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "23.44.11.0/24"
+  availability_zone = data.aws_availability_zones.available.names[0]
+
+  tags = {
+    Name = "${var.project_name}-frontend-az1"
+    Tier = "frontend"
+  }
+}
+
+resource "aws_subnet" "data_az1" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "23.44.12.0/24"
+  availability_zone = data.aws_availability_zones.available.names[0]
+
+  tags = {
+    Name = "${var.project_name}-data-az1"
+    Tier = "data"
   }
 }
 
@@ -63,7 +85,29 @@ resource "aws_subnet" "private_az2" {
 
   tags = {
     Name = "${var.project_name}-private-az2"
-    Tier = "private"
+    Tier = "app"
+  }
+}
+
+resource "aws_subnet" "frontend_az2" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "23.44.21.0/24"
+  availability_zone = data.aws_availability_zones.available.names[1]
+
+  tags = {
+    Name = "${var.project_name}-frontend-az2"
+    Tier = "frontend"
+  }
+}
+
+resource "aws_subnet" "data_az2" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "23.44.22.0/24"
+  availability_zone = data.aws_availability_zones.available.names[1]
+
+  tags = {
+    Name = "${var.project_name}-data-az2"
+    Tier = "data"
   }
 }
 
@@ -152,5 +196,27 @@ resource "aws_route_table_association" "private_az1" {
 
 resource "aws_route_table_association" "private_az2" {
   subnet_id      = aws_subnet.private_az2.id
+  route_table_id = aws_route_table.private.id
+}
+
+# Frontend + data tier subnets share the same private RT (no NAT, S3 gateway
+# route only) — identical to the app (private) subnets above.
+resource "aws_route_table_association" "frontend_az1" {
+  subnet_id      = aws_subnet.frontend_az1.id
+  route_table_id = aws_route_table.private.id
+}
+
+resource "aws_route_table_association" "frontend_az2" {
+  subnet_id      = aws_subnet.frontend_az2.id
+  route_table_id = aws_route_table.private.id
+}
+
+resource "aws_route_table_association" "data_az1" {
+  subnet_id      = aws_subnet.data_az1.id
+  route_table_id = aws_route_table.private.id
+}
+
+resource "aws_route_table_association" "data_az2" {
+  subnet_id      = aws_subnet.data_az2.id
   route_table_id = aws_route_table.private.id
 }

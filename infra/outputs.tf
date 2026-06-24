@@ -46,8 +46,15 @@ output "github_oidc_provider_arn" {
   value = module.iam.github_oidc_provider_arn
 }
 
+# Backend ALB is now INTERNAL — this DNS resolves only inside the VPC and is
+# what the frontend tasks use as API_BASE_URL.
 output "alb_dns_name" {
   value = module.alb.dns_name
+}
+
+# Internet-facing frontend ALB — the public entrypoint (browser hits this).
+output "frontend_alb_dns_name" {
+  value = module.frontend_alb.alb_dns_name
 }
 
 output "ecs_cluster_name" {
