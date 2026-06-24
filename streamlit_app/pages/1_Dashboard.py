@@ -90,7 +90,7 @@ st.session_state["sel_case_id"] = case_id
 st.divider()
 with st.spinner("Loading case..."):
     det, derr = api_get(f"/cases/{case_id}/details",
-                        {"include": "evidence,witnesses,suspects,victims,trials,testimonies"})
+                        {"include": ["evidence", "witnesses", "suspects", "victims", "trials", "testimonies"]})
 if derr:
     st.error(derr)
     st.stop()
