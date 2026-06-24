@@ -126,3 +126,13 @@ def test_build_case_payload_omits_optionals():
     p = c.build_case_payload("s", "Theft", 1, 2, datetime.date(2026, 6, 1))
     assert "initial_officer_id" not in p and "open_date" not in p
     assert p["occurred_at"] == "2026-06-01"
+
+
+def test_theme_badge_and_card():
+    import theme
+    b = theme.badge("OPEN", "open")
+    assert "OPEN" in b and "<span" in b and "#22c55e" in b
+    card = theme.stat_card("OPEN CASES", 12, accent="#1860c4")
+    assert "OPEN CASES" in card and ">12<" in card and "#1860c4" in card
+    bar = theme.topbar("DSP R. Sharma", "24 JUN 2026 10:00")
+    assert "RESTRICTED" in bar and "DSP R. Sharma" in bar
