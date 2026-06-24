@@ -25,6 +25,7 @@ env:
   FE_ECS_SERVICE: crime-is-frontend-service
   FE_ECS_TASK_FAMILY: crime-is-frontend-app
   FE_CONTAINER_NAME: frontend
+  FE_ALB_NAME: crime-is-frontend-alb
 
 jobs:
   build-push:
@@ -318,3 +319,59 @@ jobs:
           cluster: ${{ env.FE_ECS_CLUSTER }}
           service: ${{ env.FE_ECS_SERVICE }}
           wait-for-service-stability: true
+
+  health-check-frontend:
+    name: health-check-frontend
+    needs: deploy-frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve frontend base URL
+        id: url
+        env:
+          OVERRIDE_URL: ${{ vars.FRONTEND_BASE_URL }}
+        run: |
+          set -euo pipefail
+          # Prefer an explicit repo var (e.g. once HTTPS/a domain exists); else
+          # discover the internet-facing frontend ALB DNS.
+          if [ -n "${OVERRIDE_URL}" ]; then
+            BASE="${OVERRIDE_URL%/}"
+          else
+            DNS=$(aws elbv2 describe-load-balancers \
+              --names "${FE_ALB_NAME}" \
+              --query 'LoadBalancers[0].DNSName' --output text)
+            if [ -z "${DNS}" ] || [ "${DNS}" = "None" ]; then
+              echo "Failed to resolve frontend ALB DNS for '${FE_ALB_NAME}'" >&2
+              exit 1
+            fi
+            BASE="http://${DNS}"
+          fi
+          echo "base=${BASE}" >> "$GITHUB_OUTPUT"
+
+      - name: Check Streamlit health
+        env:
+          BASE: ${{ steps.url.outputs.base }}
+        run: |
+          set -euo pipefail
+          # Streamlit's built-in health endpoint; 200 = serving.
+          URL="${BASE}/_stcore/health"
+          echo "Probing ${URL}"
+          CODE="000"
+          for i in $(seq 1 10); do
+            CODE=$(curl -sS -o /tmp/fe_body -w '%{http_code}' --max-time 10 "${URL}" || echo "000")
+            echo "Attempt ${i}/10: HTTP ${CODE}"
+            cat /tmp/fe_body 2>/dev/null || true
+            echo
+            if [ "${CODE}" = "200" ]; then
+              echo "Frontend health OK."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "Frontend health check failed after retries (last HTTP ${CODE})" >&2
+          exit 1

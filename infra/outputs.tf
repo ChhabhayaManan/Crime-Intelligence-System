@@ -57,6 +57,11 @@ output "frontend_alb_dns_name" {
   value = module.frontend_alb.alb_dns_name
 }
 
+# Full public URL of the frontend (HTTP-only until ACM/:443 is added).
+output "frontend_alb_url" {
+  value = "http://${module.frontend_alb.alb_dns_name}"
+}
+
 output "ecs_cluster_name" {
   value = module.ecs.cluster_name
 }
