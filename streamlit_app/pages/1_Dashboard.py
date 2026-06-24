@@ -22,7 +22,6 @@ st.markdown(
 # ── Load cases ────────────────────────────────────────────────────────────────
 with st.spinner("Loading cases..."):
     cases_data, cases_err = api_get("/cases", {"page_size": 200, "sort": "-open_date"})
-    hs_data, _ = api_get("/analytics/hotspots")
 if cases_err:
     st.error(cases_err)
     st.stop()
@@ -85,6 +84,7 @@ sel_rows = selected.selection.rows if selected.selection else []
 if not sel_rows:
     st.stop()
 case_id = int(df.iloc[sel_rows[0]]["_case_id"])
+st.session_state["sel_case_id"] = case_id
 
 # ── Case detail (3-column) ────────────────────────────────────────────────────
 st.divider()

@@ -352,8 +352,10 @@ def dialog_edit_case(case_obj):
     case_id = case_obj.get("case_id")
     summary = st.text_area("Summary", value=case_obj.get("summary") or "", max_chars=255)
     crime_type = st.text_input("Crime type", value=case_obj.get("crime_type") or "")
-    status = st.selectbox("Status", ["open", "on_hold", "closed"],
-                          index=["open", "on_hold", "closed"].index(case_obj.get("status") or "open"))
+    _statuses = ["open", "on_hold", "closed"]
+    _cur = case_obj.get("status") or "open"
+    status = st.selectbox("Status", _statuses,
+                          index=_statuses.index(_cur) if _cur in _statuses else 0)
     if st.button("Save", type="primary"):
         payload = {"summary": summary or None, "crime_type": crime_type or None, "status": status}
         _, err = api_patch(f"/cases/{case_id}", payload)
