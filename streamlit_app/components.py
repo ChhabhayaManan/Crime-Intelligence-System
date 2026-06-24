@@ -92,9 +92,9 @@ def build_case_payload(summary, crime_type, location_id, reported_by, occurred_a
         "summary": summary, "crime_type": crime_type, "location_id": location_id,
         "reported_by": reported_by, "occurred_at": iso(occurred_at),
     }
-    if initial_officer_id:
+    if initial_officer_id is not None:
         payload["initial_officer_id"] = initial_officer_id
-    if open_date:
+    if open_date is not None:
         payload["open_date"] = iso(open_date)
     return payload
 

@@ -216,15 +216,23 @@ def dialog_add_suspect(case_id, evidence):
     ev_opts = {f"EV-{e['evidence_id']}": e["evidence_id"] for e in evidence}
     linked = st.multiselect("Link evidence", list(ev_opts.keys()))
     if st.button("Add suspect", type="primary", disabled=not pid):
-        payload = {"person_id": pid, "physical_description": desc or None,
-                   "family_contact": contact or None, "arrest_status": arrest or None,
-                   "evidence_ids": [ev_opts[k] for k in linked]}
+        payload = {"person_id": pid, "evidence_ids": [ev_opts[k] for k in linked]}
         data, err = api_post(f"/cases/{case_id}/suspects", payload)
         if err:
             st.error(err)
-        else:
-            st.success(f"Suspect #{data['suspect_id']} added.")
-            st.rerun()
+            return
+        sid = data["suspect_id"]
+        if desc or contact or arrest:
+            upd = {"physical_description": desc or None,
+                   "family_contact": contact or None,
+                   "arrest_status": arrest or None}
+            _, uerr = api_patch(f"/cases/{case_id}/suspects/{sid}", upd)
+            if uerr:
+                st.warning(f"Suspect #{sid} added, but detail update failed: {uerr}")
+                st.rerun()
+                return
+        st.success(f"Suspect #{sid} added.")
+        st.rerun()
 
 
 @st.dialog("Add Witness")
