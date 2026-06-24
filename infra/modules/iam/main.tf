@@ -196,8 +196,11 @@ data "aws_iam_policy_document" "github_actions" {
     resources = [local.ecs_task_arn]
   }
 
-  # Post-deploy health-check job resolves the public ALB DNS to hit
-  # /health/ready. DescribeLoadBalancers has no resource-level scoping.
+  # Post-deploy health-check jobs resolve ALB DNS to probe health endpoints:
+  #   - backend ALB  -> /health/ready
+  #   - frontend ALB -> /_stcore/health (internet-facing Streamlit)
+  # DescribeLoadBalancers has no resource-level scoping, so a single "*"
+  # statement covers both load balancers.
   statement {
     sid       = "ElbDescribe"
     actions   = ["elasticloadbalancing:DescribeLoadBalancers"]
