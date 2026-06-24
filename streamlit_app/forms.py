@@ -32,7 +32,7 @@ def address_picker(label, key):
         city = st.text_input("Filter by city", key=f"{key}_filter")
         data, err = api_get("/addresses", {"city": city, "page_size": 50} if city else {"page_size": 50})
         if err:
-            st.warning(err)
+            st.error(err)
             return None
         items = data.get("items", [])
         if not items:
@@ -42,12 +42,17 @@ def address_picker(label, key):
         choice = st.selectbox("Select address", list(opts.keys()), key=f"{key}_sel")
         return opts.get(choice)
     # Create new
+    created_key = f"{key}_created_id"
+    if st.session_state.get(created_key):
+        st.success(f"Address #{st.session_state[created_key]} created.")
+        return st.session_state[created_key]
     payload = address_subform(f"{key}_new")
     if payload and st.button("Save address", key=f"{key}_save"):
         data, err = api_post("/addresses", payload)
         if err:
             st.error(err)
             return None
+        st.session_state[created_key] = data["address_id"]
         st.success(f"Address #{data['address_id']} created.")
         return data["address_id"]
     return None
@@ -67,7 +72,7 @@ def person_picker(label, key, role=None):
             params["role"] = role
         data, err = api_get("/persons", params)
         if err:
-            st.warning(err)
+            st.error(err)
             return None
         items = data.get("items", [])
         if not items:
@@ -87,6 +92,10 @@ def person_picker(label, key, role=None):
     occupation = st.text_input("Occupation", key=f"{key}_occ")
     contact = st.text_input("Contact number", key=f"{key}_c")
     addr_id = address_picker("Address", f"{key}_addr")
+    created_key = f"{key}_created_pid"
+    if st.session_state.get(created_key):
+        st.success(f"Person #{st.session_state[created_key]} created.")
+        return st.session_state[created_key]
     if addr_id and st.button("Save person", key=f"{key}_save"):
         try:
             payload = c.build_person_payload(first, middle, last, gender, birth,
@@ -99,6 +108,7 @@ def person_picker(label, key, role=None):
             st.error(err)
             return None
         pid = data["person_id"]
+        st.session_state[created_key] = pid
         st.success(f"Person #{pid} created.")
         return pid
     return None
@@ -150,7 +160,7 @@ def dialog_new_case():
     summary = st.text_area("Summary / complaint *", max_chars=255)
     col1, col2 = st.columns(2)
     crime_type = col1.text_input("Crime type *")
-    occurred_at = col2.date_input("Crime date *")
+    occurred_at = col2.date_input("Crime date *", value=None)
     open_date = st.date_input("Open date (default today)", value=None)
     st.divider()
     reporter_id = person_picker("Reporter *", "case_reporter")
