@@ -66,3 +66,63 @@ def test_api_post_file_sends_multipart(monkeypatch):
     assert err is None and data == {"file_key": "k"}
     assert captured["files"]["file"][0] == "a.pdf"
     assert "Content-Type" not in captured["headers"]
+
+
+import datetime
+import pytest
+
+
+def test_map_status():
+    import components as c
+    assert c.map_status("on_hold") == "hold"
+    assert c.map_status("open") == "open"
+    assert c.map_status(None) == "open"
+    assert c.map_status(None, default="—") == "—"
+
+
+def test_fmt_date():
+    import components as c
+    assert c.fmt_date(None) == "—"
+    assert c.fmt_date("2026-06-24") == "24 JUN 2026"
+
+
+def test_case_ref():
+    import components as c
+    assert c.case_ref("2026-06-24", 42) == "CIS/2026/0042"
+    assert c.case_ref(None, None) == "CIS/----/"
+
+
+def test_person_name():
+    import components as c
+    assert c.person_name({"first_name": "Asha", "last_name": "Rao"}) == "Asha Rao"
+    assert c.person_name({"full_name": "K Mehra"}) == "K Mehra"
+    assert c.person_name({"person_id": 7}) == "Person #7"
+    assert c.person_name(None) == "—"
+
+
+def test_build_person_payload_requires_exactly_one_address():
+    import components as c
+    with pytest.raises(ValueError):
+        c.build_person_payload("A", "", "B", "M", None, "", "", address_id=None, address=None)
+    with pytest.raises(ValueError):
+        c.build_person_payload("A", "", "B", "M", None, "", "", address_id=1, address={"city": "X"})
+    p = c.build_person_payload("A", "", "B", "M", datetime.date(2000, 1, 2), "", "999", address_id=3)
+    assert p["address_id"] == 3 and p["birth_date"] == "2000-01-02"
+    assert p["first_name"] == "A" and p["middle_name"] is None
+
+
+def test_build_punishment_payload_validates():
+    import components as c
+    with pytest.raises(ValueError):
+        c.build_punishment_payload([])
+    with pytest.raises(ValueError):
+        c.build_punishment_payload([1], jail_start=datetime.date(2026, 2, 1), jail_end=datetime.date(2026, 1, 1))
+    p = c.build_punishment_payload([1, 2], fine=500, jail_start=datetime.date(2026, 1, 1))
+    assert p["person_ids"] == [1, 2] and p["jail_start"] == "2026-01-01"
+
+
+def test_build_case_payload_omits_optionals():
+    import components as c
+    p = c.build_case_payload("s", "Theft", 1, 2, datetime.date(2026, 6, 1))
+    assert "initial_officer_id" not in p and "open_date" not in p
+    assert p["occurred_at"] == "2026-06-01"
