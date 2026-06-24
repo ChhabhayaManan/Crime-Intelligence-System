@@ -1,0 +1,20 @@
+[theme]
+base = "dark"
+primaryColor = "#1860c4"
+backgroundColor = "#07090e"
+secondaryBackgroundColor = "#0c1220"
+textColor = "#dce8f5"
+font = "monospace"
+
+[server]
+headless = true
+
+[browser]
+# Frontend subnets have no NAT/internet egress. Without browser.serverAddress
+# set, Streamlit's startup calls net_util.get_external_ip() (blocking HTTP GETs
+# to AWS checkip, 5s each) on the event-loop thread — those hang ~16s with no
+# egress and stall all serving (incl. /_stcore/health) on every task boot.
+# Setting serverAddress takes the branch that skips that lookup entirely.
+serverAddress = "localhost"
+# No egress to reach the telemetry endpoint either; turn it off.
+gatherUsageStats = false
