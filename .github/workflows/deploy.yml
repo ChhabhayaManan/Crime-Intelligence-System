@@ -19,6 +19,12 @@ env:
   ECS_TASK_FAMILY: crime-is-app
   CONTAINER_NAME: app
   ALB_NAME: crime-is-alb
+  # Frontend (Streamlit) tier — independent of the backend jobs above.
+  FE_ECR_REPOSITORY: cis-frontend-image
+  FE_ECS_CLUSTER: crime-is-frontend-cluster
+  FE_ECS_SERVICE: crime-is-frontend-service
+  FE_ECS_TASK_FAMILY: crime-is-frontend-app
+  FE_CONTAINER_NAME: frontend
 
 jobs:
   build-push:
@@ -235,3 +241,80 @@ jobs:
           done
           echo "Readiness check failed after retries (last HTTP ${CODE})" >&2
           exit 1
+
+  # --- Frontend (Streamlit) tier ------------------------------------------
+  # Independent of the backend build-push/migrate/deploy jobs above so either
+  # tier can deploy on its own. No migrate step — frontend has no DB.
+  build-push-frontend:
+    name: build-push-frontend
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+      image_tag: ${{ steps.vars.outputs.image_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Image tag from git SHA
+        id: vars
+        run: echo "image_tag=git-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push frontend image
+        id: build
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
+        run: |
+          # Build context is streamlit_app/ (uses streamlit_app/Dockerfile).
+          IMAGE="${REGISTRY}/${FE_ECR_REPOSITORY}:${IMAGE_TAG}"
+          docker build -t "$IMAGE" -t "${REGISTRY}/${FE_ECR_REPOSITORY}:latest" streamlit_app/
+          docker push "$IMAGE"
+          docker push "${REGISTRY}/${FE_ECR_REPOSITORY}:latest"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+  deploy-frontend:
+    name: deploy-frontend
+    needs: build-push-frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Render new frontend task definition with the new image
+        id: taskdef
+        env:
+          IMAGE: ${{ needs.build-push-frontend.outputs.image }}
+        run: |
+          set -euo pipefail
+          aws ecs describe-task-definition \
+            --task-definition "${FE_ECS_TASK_FAMILY}" \
+            --query 'taskDefinition' --output json > taskdef-frontend-current.json
+          jq --arg IMAGE "${IMAGE}" --arg NAME "${FE_CONTAINER_NAME}" '
+            .containerDefinitions = (.containerDefinitions | map(
+              if .name == $NAME then .image = $IMAGE else . end
+            ))
+            | del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
+                  .compatibilities, .registeredAt, .registeredBy)
+          ' taskdef-frontend-current.json > taskdef-frontend-new.json
+          echo "taskdef=taskdef-frontend-new.json" >> "$GITHUB_OUTPUT"
+
+      - name: Register and deploy
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.taskdef.outputs.taskdef }}
+          cluster: ${{ env.FE_ECS_CLUSTER }}
+          service: ${{ env.FE_ECS_SERVICE }}
+          wait-for-service-stability: true

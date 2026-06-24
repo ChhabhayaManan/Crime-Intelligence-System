@@ -1,7 +1,9 @@
+import os
 import streamlit as st
 import requests
 
-_DEFAULT_BASE = "http://crime-is-alb-1406661986.ap-south-1.elb.amazonaws.com/api/v1"
+_DEFAULT_BASE = os.getenv("API_BASE_URL",
+                          "http://crime-is-alb-1406661986.ap-south-1.elb.amazonaws.com/api/v1")
 
 
 def setup_sidebar():

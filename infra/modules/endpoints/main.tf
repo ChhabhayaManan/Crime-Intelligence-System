@@ -37,6 +37,10 @@ resource "aws_security_group_rule" "endpoints_ingress_from_ecs" {
   description              = "HTTPS from ECS tasks"
 }
 
+# NOTE: ingress on the endpoints SG from the frontend ECS SG is defined at the
+# root (aws_security_group_rule.endpoints_ingress_frontend in infra/main.tf) to
+# avoid an endpoints<->frontend module dependency cycle.
+
 # --- S3 gateway endpoint (free). Adds a prefix-list route to the private
 # route table(s); reaches the evidence bucket + ECR layer blobs with no NAT. ---
 resource "aws_vpc_endpoint" "s3" {

@@ -28,3 +28,9 @@ variable "image_tag" {
   type    = string
   default = "latest"
 }
+
+# Frontend (Streamlit) container image tag (CI overrides with the git SHA).
+variable "frontend_image_tag" {
+  type    = string
+  default = "latest"
+}

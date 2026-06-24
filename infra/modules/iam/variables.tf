@@ -7,6 +7,17 @@ variable "ecr_repository_arn" {
   type = string
 }
 
+# Frontend ECR repo ARN: frontend image pull (execution) + push (github actions).
+variable "frontend_ecr_repository_arn" {
+  type = string
+}
+
+# Frontend CloudWatch log group name; must match the frontend module's group.
+variable "frontend_log_group_name" {
+  type    = string
+  default = "crime-is-frontend"
+}
+
 # Secret ARNs the execution role may read at task start (db + jwt).
 variable "secret_arns" {
   type = list(string)

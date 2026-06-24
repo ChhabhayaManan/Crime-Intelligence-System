@@ -28,12 +28,38 @@ resource "aws_lb_target_group" "app" {
   }
 }
 
+# Internal backend ALB security group. Standalone rules (not inline) so the
+# frontend ECS SG can be referenced without creating a cross-SG cycle.
+resource "aws_security_group" "backend_alb" {
+  name        = "${var.project_name}-backend-alb-sg"
+  description = "Internal backend ALB; reachable only from frontend ECS"
+  vpc_id      = var.vpc_id
+
+  tags = {
+    Name = "${var.project_name}-backend-alb-sg"
+  }
+}
+
+# NOTE: ingress on this SG from the frontend ECS SG is defined at the root
+# (aws_security_group_rule.backend_alb_ingress_frontend in infra/main.tf) to
+# avoid an alb<->frontend module dependency cycle.
+
+resource "aws_security_group_rule" "backend_alb_egress_tasks" {
+  type              = "egress"
+  from_port         = var.container_port
+  to_port           = var.container_port
+  protocol          = "tcp"
+  security_group_id = aws_security_group.backend_alb.id
+  cidr_blocks       = [var.vpc_cidr]
+  description       = "ALB to backend ECS tasks"
+}
+
 resource "aws_lb" "this" {
   name               = "${local.name}-alb"
   load_balancer_type = "application"
-  internal           = false
-  security_groups    = [var.alb_security_group_id]
-  subnets            = var.public_subnet_ids
+  internal           = true
+  security_groups    = [aws_security_group.backend_alb.id]
+  subnets            = var.subnet_ids
 
   tags = {
     Name = "${var.project_name}-alb"
