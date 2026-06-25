@@ -2,8 +2,10 @@ import os
 import streamlit as st
 import requests
 
-_DEFAULT_BASE = os.getenv("API_BASE_URL",
-                          "http://crime-is-alb-1406661986.ap-south-1.elb.amazonaws.com/api/v1")
+# API endpoint comes solely from the API_BASE_URL env var (set on the ECS
+# frontend task to the internal backend ALB DNS — see infra/modules/frontend).
+# Fallback is localhost for local dev only; no cloud DNS is hardcoded.
+_DEFAULT_BASE = os.getenv("API_BASE_URL")
 
 
 def setup_sidebar():
@@ -16,16 +18,8 @@ def setup_sidebar():
         st.session_state.username_display = ""
 
     with st.sidebar:
-        st.markdown("### ⚙️ Config")
-        new_url = st.text_input(
-            "API Base URL",
-            value=st.session_state.base_url,
-            key="sidebar_base_url_input",
-        )
-        if new_url != st.session_state.base_url:
-            st.session_state.base_url = new_url
-
-        st.divider()
+        # API base URL is fixed by the API_BASE_URL env var (set on the ECS
+        # task). It is intentionally NOT user-editable or shown.
         if st.session_state.jwt:
             st.success(f"**{st.session_state.username_display}**")
             if st.button("Logout", key="sidebar_logout"):
@@ -61,11 +55,11 @@ def api_get(path, params=None, timeout=30):
             detail = res.text[:200]
         return None, f"HTTP {res.status_code}: {detail}"
     except requests.exceptions.ConnectTimeout:
-        return None, f"Cannot reach API at **{base}** (connect timeout). Check the Base URL in the sidebar."
+        return None, f"Cannot reach backend (connect timeout). Check the Base URL in the sidebar."
     except requests.exceptions.ConnectionError:
-        return None, f"Cannot connect to API at **{base}**. Is the backend running? Check the Base URL in the sidebar."
+        return None, f"Cannot connect to backend. Is the backend running? Check the Base URL in the sidebar."
     except requests.exceptions.ReadTimeout:
-        return None, f"API at **{base}** is taking too long to respond ({timeout}s). Try again — may be a cold start."
+        return None, f"backend is taking too long to respond ({timeout}s). Try again — may be a cold start."
 
 
 def api_post(path, payload, timeout=45):
@@ -84,11 +78,11 @@ def api_post(path, payload, timeout=45):
             detail = res.text[:200]
         return None, detail
     except requests.exceptions.ConnectTimeout:
-        return None, f"Cannot reach API at **{base}** (connect timeout). Check the Base URL in the sidebar."
+        return None, f"Cannot reach backend (connect timeout). Check the Base URL in the sidebar."
     except requests.exceptions.ConnectionError:
-        return None, f"Cannot connect to API at **{base}**. Is the backend running? Check the Base URL in the sidebar."
+        return None, f"Cannot connect to backend. Is the backend running? Check the Base URL in the sidebar."
     except requests.exceptions.ReadTimeout:
-        return None, f"API at **{base}** is taking too long ({timeout}s). Auth operations (Argon2) can be slow — try again."
+        return None, f"API connection is taking too long ({timeout}s). Auth operations (Argon2) can be slow — try again."
 
 
 def api_patch(path, payload, timeout=45):
@@ -107,11 +101,11 @@ def api_patch(path, payload, timeout=45):
             detail = res.text[:200]
         return None, detail
     except requests.exceptions.ConnectTimeout:
-        return None, f"Cannot reach API at **{base}** (connect timeout)."
+        return None, f"Cannot reach backend (connect timeout)."
     except requests.exceptions.ConnectionError:
-        return None, f"Cannot connect to API at **{base}**. Is the backend running?"
+        return None, f"Cannot connect to backend. Is the backend running?"
     except requests.exceptions.ReadTimeout:
-        return None, f"API at **{base}** is taking too long ({timeout}s). Try again."
+        return None, f"backend is taking too long ({timeout}s). Try again."
 
 
 def api_delete(path, timeout=30):
@@ -130,9 +124,9 @@ def api_delete(path, timeout=30):
             detail = res.text[:200]
         return False, f"HTTP {res.status_code}: {detail}"
     except requests.exceptions.ConnectionError:
-        return False, f"Cannot connect to API at **{base}**."
+        return False, f"Cannot connect to backend."
     except requests.exceptions.Timeout:
-        return False, f"API at **{base}** timed out."
+        return False, f"backend timed out."
 
 
 def api_post_file(path, file_bytes, filename, content_type, timeout=60):
@@ -152,6 +146,6 @@ def api_post_file(path, file_bytes, filename, content_type, timeout=60):
             detail = res.text[:200]
         return None, detail
     except requests.exceptions.ConnectionError:
-        return None, f"Cannot connect to API at **{base}**."
+        return None, f"Cannot connect to backend."
     except requests.exceptions.Timeout:
-        return None, f"Upload to **{base}** timed out ({timeout}s)."
+        return None, f"Upload to backend timed out ({timeout}s)."

@@ -196,14 +196,21 @@ data "aws_iam_policy_document" "github_actions" {
     resources = [local.ecs_task_arn]
   }
 
-  # Post-deploy health-check jobs resolve ALB DNS to probe health endpoints:
-  #   - backend ALB  -> /health/ready
-  #   - frontend ALB -> /_stcore/health (internet-facing Streamlit)
-  # DescribeLoadBalancers has no resource-level scoping, so a single "*"
-  # statement covers both load balancers.
+  # Post-deploy health-check jobs verify health via the ELB API:
+  #   - backend ALB is internal, so it cannot be HTTP-probed from a public
+  #     runner. The backend check polls target-group health instead, which
+  #     needs DescribeTargetGroups + DescribeTargetHealth.
+  #   - the frontend ALB is internet-facing and still resolved by DNS to probe
+  #     /_stcore/health, which needs DescribeLoadBalancers.
+  # None of these actions support resource-level scoping, so a single "*"
+  # statement covers them.
   statement {
-    sid       = "ElbDescribe"
-    actions   = ["elasticloadbalancing:DescribeLoadBalancers"]
+    sid = "ElbDescribe"
+    actions = [
+      "elasticloadbalancing:DescribeLoadBalancers",
+      "elasticloadbalancing:DescribeTargetGroups",
+      "elasticloadbalancing:DescribeTargetHealth",
+    ]
     resources = ["*"]
   }
 

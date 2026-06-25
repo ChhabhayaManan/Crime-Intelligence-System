@@ -10,8 +10,6 @@ if "jwt" not in st.session_state:
     st.session_state.jwt = None
 if "username_display" not in st.session_state:
     st.session_state.username_display = ""
-if "base_url" not in st.session_state:
-    st.session_state.base_url = "http://crime-is-alb-1406661986.ap-south-1.elb.amazonaws.com/api/v1"
 
 setup_sidebar()
 
@@ -43,10 +41,6 @@ with tab_login:
                     st.session_state.username_display = username
                     st.success("Authenticated. Navigate using the sidebar.")
                     st.rerun()
-    with col2:
-        st.markdown("#### Authorised Roles")
-        st.markdown("Administrator · Inspector · Analyst · Viewer *(read-only)*")
-        st.caption("IT Act § 43 & § 66 — Unauthorised access is a criminal offence.")
 
 # ── Register ──
 with tab_register:

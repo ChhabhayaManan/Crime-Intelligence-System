@@ -19,6 +19,7 @@ env:
   ECS_TASK_FAMILY: crime-is-app
   CONTAINER_NAME: app
   ALB_NAME: crime-is-alb
+  BACKEND_TG_NAME: crime-is-tg
   # Frontend (Streamlit) tier — independent of the backend jobs above.
   FE_ECR_REPOSITORY: cis-frontend-image
   FE_ECS_CLUSTER: crime-is-frontend-cluster
@@ -86,7 +87,7 @@ jobs:
             SUBNETS="${OVERRIDE_SUBNETS}"
           else
             SUBNETS=$(aws ec2 describe-subnets \
-              --filters "Name=tag:Tier,Values=private" \
+              --filters "Name=tag:Tier,Values=app" \
               --query 'Subnets[].SubnetId' --output text | tr '\t' ',')
           fi
           if [ -n "${OVERRIDE_SG}" ]; then
@@ -196,51 +197,42 @@ jobs:
           role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Resolve app base URL
-        id: url
-        env:
-          OVERRIDE_URL: ${{ vars.APP_BASE_URL }}
+      - name: Check backend target health
         run: |
           set -euo pipefail
-          # Prefer an explicit repo var (e.g. once HTTPS/a domain exists); else
-          # discover the public ALB DNS (matches how `migrate` resolves network).
-          if [ -n "${OVERRIDE_URL}" ]; then
-            BASE="${OVERRIDE_URL%/}"
-          else
-            DNS=$(aws elbv2 describe-load-balancers \
-              --names "${ALB_NAME}" \
-              --query 'LoadBalancers[0].DNSName' --output text)
-            if [ -z "${DNS}" ] || [ "${DNS}" = "None" ]; then
-              echo "Failed to resolve ALB DNS for '${ALB_NAME}'" >&2
-              exit 1
-            fi
-            BASE="http://${DNS}"
+          # The backend ALB is internal (alb module: internal = true), so a
+          # public GitHub runner cannot HTTP-probe it. Instead verify health via
+          # the ELB API: poll the target group until every registered target is
+          # 'healthy'. The TG health check itself hits GET /health on each task,
+          # so 'healthy' already proves the app is serving.
+          TG_ARN=$(aws elbv2 describe-target-groups \
+            --names "${BACKEND_TG_NAME}" \
+            --query 'TargetGroups[0].TargetGroupArn' --output text)
+          if [ -z "${TG_ARN}" ] || [ "${TG_ARN}" = "None" ]; then
+            echo "Failed to resolve target group ARN for '${BACKEND_TG_NAME}'" >&2
+            exit 1
           fi
-          echo "base=${BASE}" >> "$GITHUB_OUTPUT"
-
-      - name: Check /health/ready
-        env:
-          BASE: ${{ steps.url.outputs.base }}
-        run: |
-          set -euo pipefail
-          URL="${BASE}/health/ready"
-          echo "Probing ${URL}"
-          # 200 = ok or degraded (reader/S3 non-fatal); 503 = unhealthy
-          # (writer/ORM down) and must fail the deploy. Retry to absorb the
-          # brief settle window after the service reaches stability.
-          CODE="000"
+          echo "Polling target health for ${TG_ARN}"
           for i in $(seq 1 10); do
-            CODE=$(curl -sS -o /tmp/ready_body -w '%{http_code}' --max-time 10 "${URL}" || echo "000")
-            echo "Attempt ${i}/10: HTTP ${CODE}"
-            cat /tmp/ready_body 2>/dev/null || true
-            echo
-            if [ "${CODE}" = "200" ]; then
-              echo "Readiness OK."
-              exit 0
+            STATES=$(aws elbv2 describe-target-health \
+              --target-group-arn "${TG_ARN}" \
+              --query 'TargetHealthDescriptions[].TargetHealth.State' \
+              --output text)
+            echo "Attempt ${i}/10: states=[${STATES:-<none>}]"
+            # Pass only when at least one target exists and none are unhealthy.
+            if [ -n "${STATES}" ]; then
+              UNHEALTHY=false
+              for s in ${STATES}; do
+                [ "${s}" = "healthy" ] || UNHEALTHY=true
+              done
+              if [ "${UNHEALTHY}" = "false" ]; then
+                echo "All targets healthy."
+                exit 0
+              fi
             fi
             sleep 15
           done
-          echo "Readiness check failed after retries (last HTTP ${CODE})" >&2
+          echo "Targets not all healthy after retries (last states: [${STATES:-<none>}])" >&2
           exit 1
 
   # --- Frontend (Streamlit) tier ------------------------------------------
