@@ -21,8 +21,9 @@ Tracks the complete lifecycle of a criminal case: persons (multi-role), cases, e
 ---
 
 ## 🎬 Demo
+![image](Docs/demo-thumbnail.png)
 
-[![Watch the demo](Docs/demo-thumbnail.png)](https://youtu.be/GiN5sfaihsA)
+[Watch the demo](https://youtu.be/GiN5sfaihsA)
 
 *3-minute walkthrough: login → case creation → evidence upload → testimony → trial → crime analytics.*
 
@@ -126,7 +127,7 @@ docker compose down -v && docker compose up --build
 ```bash
 pip install -r requirements.txt
 pytest tests/test_db_routing.py -v
-
+```
 
 ---
 
