@@ -1,10 +1,17 @@
 """st.dialog create/edit forms + entity pickers."""
+from datetime import date
+
 import streamlit as st
 import components as c
 from utils import api_get, api_post, api_patch, api_post_file, api_delete
 
 GENDERS = ["", "M", "F", "O"]
 ARREST = ["wanted", "arrested", "released"]
+
+# Birth-date picker bounds: allow ~100 years into the past, never the future.
+# (st.date_input otherwise restricts selection to +/- 10 years.)
+_TODAY = date.today()
+_DOB_MIN = date(_TODAY.year - 100, 1, 1)
 
 
 # ── Subforms (no API) ─────────────────────────────────────────────────────────
@@ -88,7 +95,7 @@ def person_picker(label, key, role=None):
     last = col3.text_input("Last name", key=f"{key}_l")
     col4, col5 = st.columns(2)
     gender = col4.selectbox("Gender", GENDERS, key=f"{key}_g")
-    birth = col5.date_input("Birth date", value=None, key=f"{key}_b")
+    birth = col5.date_input("Birth date", value=None, min_value=_DOB_MIN, max_value=_TODAY, key=f"{key}_b")
     occupation = st.text_input("Occupation", key=f"{key}_occ")
     contact = st.text_input("Contact number", key=f"{key}_c")
     addr_id = address_picker("Address", f"{key}_addr")
@@ -135,7 +142,7 @@ def dialog_new_person():
     last = col3.text_input("Last name")
     col4, col5 = st.columns(2)
     gender = col4.selectbox("Gender", GENDERS)
-    birth = col5.date_input("Birth date", value=None)
+    birth = col5.date_input("Birth date", value=None, min_value=_DOB_MIN, max_value=_TODAY)
     occupation = st.text_input("Occupation")
     contact = st.text_input("Contact number")
     st.divider()
