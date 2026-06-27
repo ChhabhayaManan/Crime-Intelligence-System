@@ -1,192 +1,204 @@
-# 📁 Crime Intelligence System
+<div align="center">
 
-**Crime Intelligence System**
+# 🛡️ Crime Intelligence System
 
-A backend API system for managing criminal investigations. 
-The system supports case management, evidence tracking, witness testimony, suspect identification, trial records, and crime analytics.
+**Full-stack criminal investigation management platform — FastAPI + Streamlit on AWS ECS Fargate, fully Terraform-provisioned with OIDC CI/CD.**
 
-Built using FastAPI and PostgreSQL with a clean layered architecture, this project models the lifecycle of a criminal case — from reporting and evidence collection to trials and punishments. It simulates a crime investigation management system where complex relationships between suspects, victims, officers, cases, court trials information and evidence are stored and queried efficiently using SQL and relational principles.
+Tracks the complete lifecycle of a criminal case: persons (multi-role), cases, evidence, suspects, witnesses, victims, trials, punishments, and crime-hotspot analytics.
+
+![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.135-009688?logo=fastapi&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Streamlit-UI-FF4B4B?logo=streamlit&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![Terraform](https://img.shields.io/badge/Terraform-IaC-7B42BC?logo=terraform&logoColor=white)
+![AWS](https://img.shields.io/badge/AWS-ECS%20Fargate-FF9900?logo=amazonaws&logoColor=white)
+
+</div>
+
+> **Deployment note:** The full stack is provisioned on AWS via a single `terraform apply`. It is **not kept running 24/7** (cost control) — see the demo video and architecture below. Infrastructure spins up on demand in ~30 minutes.
 
 ---
 
-## 🛠️ Technologies Used
+## 🎬 Demo
 
-- **Framework:** FastAPI (High performance, async support)
-- **Database:** PostgreSQL (Relational integrity, advanced querying)
-- **ORM:** SQLAlchemy (Database interaction & modeling)
-- **Data Validation:** Pydantic (Type hints, automated serialization)
-- **Authentication Strategy:** JWT (JSON Web Tokens)
-- **API Documentation:** Auto-generated via OpenAPI (Swagger UI)
+[![Watch the demo](Docs/demo-thumbnail.png)](https://youtu.be/GiN5sfaihsA)
+
+*3-minute walkthrough: login → case creation → evidence upload → testimony → trial → crime analytics.*
 
 ---
 
-## 🏗️ Architecture Overview
+## 🏛️ Architecture
 
-The backend follows a layered architecture to maintain separation of concerns:
+![AWS Architecture](Docs/aws-architecture.png)
 
-```plaintext
-Client
-  ↓
-FastAPI Routes (HTTP layer)
-  ↓
-Pydantic Schemas (validation & serialization)
-  ↓
-CRUD Layer (database operations)
-  ↓
-PostgreSQL Database
+A two-Availability-Zone VPC on `ap-south-1`, fully private data plane:
+
+- **Internet-facing ALB** → **Streamlit** frontend (Fargate, one task per AZ)
+- **Internal ALB** → **FastAPI** backend (Fargate, one task per AZ) — the API is never directly exposed to the internet
+- **RDS PostgreSQL** primary (writer) + **read replica**, with application-level read/write routing
+- **S3** for evidence files (AES256, versioned)
+- **Secrets Manager** for `DATABASE_URL` + `JWT_SECRET` (injected at task start, never baked into the image)
+- **VPC endpoints** (PrivateLink + S3 gateway) so private subnets have **no internet egress path at all**
+
+### Request flow (layered)
+
+```text
+Browser → Internet-facing ALB → Streamlit (Fargate)
+                                     │  HTTP /api/v1
+                                     ▼
+                              Internal ALB → FastAPI (Fargate)
+                                     │
+        Routes → Pydantic Schemas → CRUD → SQLAlchemy ORM → RDS PostgreSQL
+                                                  │
+                                                  └→ S3 (evidence files)
 ```
 
-Dependencies such as database sessions are injected using FastAPI's dependency system.
+---
+
+## ☁️ Cloud & DevOps Highlights
+
+This is the part that goes beyond a typical CRUD project:
+
+- **100% Infrastructure as Code** — 8 modular Terraform components (`vpc`, `ecs`, `rds`, `iam`, `alb`, `s3`, `secrets`, `endpoints`), remote state in S3.
+- **Zero static AWS keys** — GitHub Actions authenticates via **OIDC federation** and assumes least-privilege IAM roles.
+- **Fully private network** — no NAT gateway; all AWS API traffic flows through VPC endpoints. Private subnets have no route to the internet (defense in depth).
+- **Multi-AZ & resilient** — Fargate tasks and RDS spread across two AZs; encrypted at rest; 7-day automated backups.
+- **Read/write splitting** — a custom SQLAlchemy routing session sends writes (flush / INSERT / UPDATE / DELETE) to the primary and `SELECT`s to the read replica, falling back transparently to the writer when no replica is configured.
+- **CI/CD pipeline** — on push to `main`: build image → push to ECR → run DB migration as a one-off Fargate task → roll the ECS service → poll `/health/ready` (fails the deploy on a bad health check).
 
 ---
 
-## 📁 Project Structure
+## ✨ Features
 
-```plaintext
+- **Cases** — open / update / close, filter by crime type, city, status, date range; combined detail view (evidence, witnesses, suspects, trials, victims, testimonies)
+- **Persons (multi-role)** — one person can simultaneously be a suspect, witness, victim, officer, or criminal across different cases
+- **Evidence** — metadata + file upload to S3 (pdf/txt/jpg/png, ≤10 MB, AES256)
+- **Witnesses & testimony** — record statements and link them to the suspects they point to
+- **Suspects, victims, trials, hearings, punishments** — full investigation workflow
+- **Crime hotspot analytics** — case-count aggregation by city with date filters
+- **Auth** — JWT (HS256, 1h) with **Argon2** password hashing; protected endpoints via FastAPI dependency injection
+- **40+ REST endpoints** across 9 domains, auto-documented via OpenAPI / Swagger UI
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| **Backend** | FastAPI, Pydantic v2, SQLAlchemy 2.0 |
+| **Frontend** | Streamlit |
+| **Database** | PostgreSQL 16 (19-table normalized schema) |
+| **Auth** | PyJWT (HS256) + Argon2 |
+| **Storage** | AWS S3 (evidence files) |
+| **Infra** | AWS ECS Fargate, RDS, ALB, VPC, Secrets Manager · Terraform |
+| **CI/CD** | GitHub Actions (OIDC) → ECR → ECS |
+| **Containers** | Docker, Docker Compose |
+
+---
+
+## 🚀 Quick Start (local)
+
+The whole stack runs locally with one command — no need to install PostgreSQL.
+
+```bash
+git clone <repository-url>
+cd Crime-Tracking-and-Analysis-Database
+docker compose up --build
+```
+
+Then open the interactive API docs:
+
+```text
+http://localhost:8000/docs
+```
+
+Compose starts PostgreSQL 16, creates the `crimedb` database, loads the schema + seed data, and runs the FastAPI backend.
+
+**Reset the database** (SQL files only run on first volume creation):
+
+```bash
+docker compose down -v && docker compose up --build
+```
+
+**Run the unit tests:**
+
+```bash
+pip install -r requirements.txt
+pytest tests/test_db_routing.py -v
+
+
+---
+
+<details>
+<summary><b>🗄️ Database Design (19 tables, BCNF-normalized)</b></summary>
+
+<br>
+
+![ER Diagram](Docs/ER_Diagram.png)
+
+**Design decisions:**
+
+- **Person-role pattern** — a base `Person` row plus role-specific tables (`Police_Officer`, `Suspect`, `Victim`, `Witness`, `Criminal`) linked by FK, so one person holds multiple roles at once.
+- **Composite primary keys** — `Case_Details(case_id, open_date)` and `Trial(case_id, open_date, trial_number)`; lookup helpers default to the latest `open_date`.
+- **Named schema** — all tables live in the `crimedb` schema (not `public`); `search_path` is set per connection.
+- **Junction tables** — `Collected_For`, `Assigned_To`, `Testifies_In`, `Involved_In`, `Affected_By`, `Linked_To`, `Pointed_To`, `Punishment` model the many-to-many relationships between people, cases, and evidence.
+
+See [`Docs/relational_schema.svg`](Docs/relational_schema.svg) and [`Docs/Queries.sql`](Docs/Queries.sql) for the full schema and analytical queries.
+
+</details>
+
+<details>
+<summary><b>📁 Project Structure</b></summary>
+
+<br>
+
+```text
 App/
-  API/            → FastAPI route definitions
-  CRUD/           → database operations
-  schemas/        → Pydantic request/response models
-  db/             → database session and models
-  core/           → shared utilities and configuration
-
+  main.py            FastAPI entry; mounts /api/v1; /health + /health/ready
+  API/
+    deps.py          Per-request DB session dependency
+    Routing/         Domain routers (cases, persons, evidence, suspects, ...)
+  CRUD/              Business logic + DB operations per domain
+  schema/            Pydantic request/response models
+  db/
+    session.py       Engines (writer + read replica) + routing session
+    models.py        19 SQLAlchemy ORM models
+    setup_db.py      Idempotent DB init (schema + seed)
 Database/
-  schema.sql      → database schema
-  seed_data.sql   → initial test data
-
-tests/
-  unit and API tests
+  schema.sql         DDL for 19 tables
+  seed_data.sql      Test data
+streamlit_app/       Streamlit frontend (Home + Dashboard, Persons, Analytics, New Record)
+infra/               Terraform — 8 modules (vpc, ecs, rds, iam, alb, s3, secrets, endpoints)
+tests/               Unit + integration tests
+.github/workflows/   deploy.yml (app CI/CD) + infra.yml (terraform plan/apply)
+Docs/                Architecture diagram, ER diagram, schema, queries
 ```
 
----
-
-## ✨ Features Implemented
-
-- Case management (open, update, close cases)
-- Evidence tracking
-- Witness testimony management
-- Suspect tracking and status updates
-- Victim management
-- Trial management and punishment records
-- Crime hotspot analytics
-- Structured REST API using FastAPI
-- Data validation using Pydantic schemas
-- PostgreSQL relational database design
+</details>
 
 ---
 
-## 🔒 Authentication
+## 🔌 API Overview
 
-The system implements robust JWT-based authentication to secure the API.
+| Domain | Base path | Highlights |
+|--------|-----------|-----------|
+| Cases | `/api/v1/cases` | open/close, filtered list, combined detail view, officer assignment |
+| Persons | `/api/v1/persons` | multi-role CRUD, per-person case history |
+| Evidence | `/api/v1/.../evidence` | metadata + S3 file upload |
+| Suspects | `/api/v1/.../suspects` | arrest status, evidence linking |
+| Witnesses | `/api/v1/.../witnesses` | testimony recording, suspect pointing |
+| Victims | `/api/v1/.../victims` | per-case + global listing |
+| Trials | `/api/v1/.../trials` | hearings, judge assignment, punishments |
+| Auth | `/api/v1/auth` | register, login (JWT), change password |
+| Analytics | `/api/v1/analytics` | crime hotspots by city |
 
-Capabilities:
-- User login with JWT token issuance
-- Protected endpoints using FastAPI dependency injection
-- Role-based access control for investigators, officers, and analysts
-- Secure password hashing using bcrypt
-
-Password reset via OTP is planned for a future release.
-
+Full interactive documentation at `/docs` when the app is running.
 ---
 
-## 🧠 Database Design
+## 🔮 Roadmap
 
-The database is implemented in PostgreSQL using a normalized relational schema.
-
-Core entities:
-- `Person`
-- `Address`
-- `Case`
-- `Evidence`
-- `Witness`
-- `Suspect`
-- `Victim`
-- `Trial`
-- `Punishment`
-
-The system models real-world investigation workflows and supports relationships between entities such as cases, suspects, and evidence. All tables are normalized and satisfy BCNF for data consistency and integrity.
-
----
-
-## 📚 API Documentation
-
-Interactive API documentation is automatically provided via OpenAPI/Swagger UI. This allows developers to test endpoints directly from the browser effortlessly.
-
-Navigate to `/docs` in the application to access the interactive endpoints interface:
-
-![FastAPI API Documentation](Docs/image.png)
-
----
-
-## 🚀 Setup Instructions
-
-Follow these steps to run the backend API with its PostgreSQL database.
-
-1. **Install Docker Desktop**
-
-   Docker is required because the project runs the API and PostgreSQL database as containers.
-
-   You do not need to install PostgreSQL or pgAdmin separately.
-
-2. **Clone the repository**
-
-   ```bash
-   git clone <repository-url>
-   ```
-
-3. **Open the project folder**
-
-   ```bash
-   cd Crime-Intelligence-System
-   ```
-
-4. **Start the backend and database**
-
-   ```bash
-   docker compose up --build
-   ```
-
-   This command builds the FastAPI backend image, starts PostgreSQL, creates the `crimedb` database, and loads the schema and seed data from the `Database` folder.
-
-5. **Open the API documentation**
-
-   After the containers are running, open:
-
-   ```text
-   http://localhost:8000/docs
-   ```
-
-6. **Stop the project**
-
-   Press `Ctrl + C` in the terminal where Compose is running, then run:
-
-   ```bash
-   docker compose down
-   ```
-
-7. **Reset the database if needed**
-
-   The SQL files run only the first time the database volume is created. If you change `Database/schema.sql` or `Database/seed_data.sql` and want to rebuild the database from scratch, run:
-
-   ```bash
-   docker compose down -v
-   docker compose up --build
-   ```
-
----
-
-## 🔮 Future Improvements
-
+- HTTPS on the ALB (ACM certificate + HTTP→HTTPS redirect)
 - Password reset via OTP
-- Case analytics dashboards
-- Improved indexing for query optimization
-- Frontend dashboard for investigators
-
----
-
-## 👥 Team Members
-- Manan Chhabhaya
-- Kresha Vora
-- Anushka Prajapati
-- Kashyap Ajudiya
-- Jal Khunt
+- Expanded read-replica usage for analytics-heavy endpoints
+- Container Insights / structured request tracing
