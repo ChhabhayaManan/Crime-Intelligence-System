@@ -1,8 +1,8 @@
 import os
 
-from sqlalchemy import create_engine
+from sqlalchemy import Delete, Insert, Update, create_engine
 from sqlalchemy.engine import URL
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import Session as SASession, declarative_base, sessionmaker
 
 
 # Tables live in a named schema (not `public`) on RDS, so the search_path must be
@@ -33,14 +33,31 @@ else:
         connect_args=_CONNECT_ARGS,
     )
 
-Session = sessionmaker(bind=engine)
+class RoutingSession(SASession):
+    """Routes writes to the primary, reads to the replica.
+
+    During a flush (or for any INSERT/UPDATE/DELETE) the bind is the writer so
+    no write ever leaks to the replica. Plain SELECTs go to the reader engine,
+    which falls back to the writer when no replica is configured (see below).
+    """
+
+    def get_bind(self, mapper=None, clause=None, **kw):
+        if self._flushing or isinstance(clause, (Insert, Update, Delete)):
+            return engine
+        return reader_engine
+
+
+# expire_on_commit=False keeps committed objects populated so returning a
+# just-written row does not trigger a reload off the (slightly lagging) replica.
+Session = sessionmaker(class_=RoutingSession, expire_on_commit=False)
 session = Session()
 
 
 # --- Reader engine -----------------------------------------------------------
 # A second engine pointed at the read replica (DB_HOST_READ), inheriting the
 # writer's creds/port/db. If DB_HOST_READ is unset or equals the writer host,
-# the reader falls back to the writer. Used only by /health/ready for now.
+# the reader falls back to the writer. Bound by RoutingSession for SELECTs and
+# used by /health/ready.
 _reader_host = os.getenv("DB_HOST_READ")
 # engine.url is a real URL object (keeps the password); str() would mask it as
 # "***" and the reader would fail auth.
