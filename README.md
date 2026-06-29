@@ -25,7 +25,11 @@ Tracks the complete lifecycle of a criminal case: persons (multi-role), cases, e
 
 [Watch the demo](https://youtu.be/GiN5sfaihsA)
 
+<<<<<<< HEAD
 Didn't keep the live link up — AWS billing has feelings too..
+=======
+*Didn't keep the live link up — AWS billing has feelings too.. *
+>>>>>>> 403775f6171758011d182764db642876c5e3e94c
 
 ---
 
