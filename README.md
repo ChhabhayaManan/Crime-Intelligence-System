@@ -25,7 +25,7 @@ Tracks the complete lifecycle of a criminal case: persons (multi-role), cases, e
 
 [Watch the demo](https://youtu.be/GiN5sfaihsA)
 
-*3-minute walkthrough: login → case creation → evidence upload → testimony → trial → crime analytics.*
+Didn't keep the live link up — AWS billing has feelings too..
 
 ---
 
