@@ -1,77 +1,83 @@
+from __future__ import annotations
+
 import os
 
-from sqlalchemy import Delete, Insert, Update, create_engine
-from sqlalchemy.engine import URL
-from sqlalchemy.orm import Session as SASession, declarative_base, sessionmaker
+from sqlalchemy import create_engine
+from sqlalchemy.engine import URL, Engine
+from sqlalchemy.orm import DeclarativeBase, Session as SASession, sessionmaker
 
+SCHEMA = "crimedb"
 
-# Tables live in a named schema (not `public`) on RDS, so the search_path must be
-# set on every connection or runtime queries fail to resolve. DB_SCHEMA defaults
-# to `crimedb` to match setup_db.py.
-_SCHEMA = os.getenv("DB_SCHEMA", "crimedb")
-_CONNECT_ARGS = {"options": "-csearch_path=" + _SCHEMA}
+_ENGINE_KW = {
+    "pool_pre_ping": True,
+    "pool_size": int(os.getenv("DB_POOL_SIZE", "10")),
+    "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "20")),
+    "pool_recycle": int(os.getenv("DB_POOL_RECYCLE", "1800")),
+    "connect_args": {"options": f"-csearch_path={SCHEMA}"},
+}
 
-database_url = os.getenv("DATABASE_URL")
+_engine: Engine | None = None
+_reader_engine: Engine | None = None
 
-if database_url:
-    engine = create_engine(
-        database_url,
-        pool_pre_ping=True,
-        connect_args=_CONNECT_ARGS,
+# base class for all ORM models
+class Base(DeclarativeBase):
+    pass
+
+#get a primary engine url for read-write operations
+def _writer_url() -> URL | str:
+    url = os.getenv("DATABASE_URL")
+    if url:
+        return url
+
+    password = os.getenv("DB_PASSWORD")
+    if not password:
+        raise RuntimeError(
+            "Set DATABASE_URL, or DB_PASSWORD together with DB_HOST/DB_NAME/DB_USER."
+        )
+
+    return URL.create(
+        drivername="postgresql",
+        username=os.getenv("DB_USER", "postgres"),
+        password=password,
+        host=os.getenv("DB_HOST", "localhost"),
+        port=int(os.getenv("DB_PORT", "5432")),
+        database=os.getenv("DB_NAME", "crimedb"),
     )
-else:
-    engine = create_engine(
-        URL.create(
-            drivername="postgresql",
-            username=os.getenv("DB_USER", "postgres"),
-            password=os.getenv("DB_PASSWORD", "Ma314DBS@"),
-            host=os.getenv("DB_HOST", "localhost"),
-            port=int(os.getenv("DB_PORT", "5432")),
-            database=os.getenv("DB_NAME", "crimedb"),
-        ),
-        pool_pre_ping=True,
-        connect_args=_CONNECT_ARGS,
-    )
 
-class RoutingSession(SASession):
-    """Routes writes to the primary, reads to the replica.
+# read write engine factory (primary engine factory)
+def get_engine() -> Engine:
+    global _engine
+    if _engine is None:
+        _engine = create_engine(_writer_url(), **_ENGINE_KW)
+    return _engine
 
-    During a flush (or for any INSERT/UPDATE/DELETE) the bind is the writer so
-    no write ever leaks to the replica. Plain SELECTs go to the reader engine,
-    which falls back to the writer when no replica is configured (see below).
-    """
+# read only engine factory
+def get_reader_engine() -> Engine:
+    global _reader_engine
+    if _reader_engine is None:
+        writer = get_engine()
+        host = os.getenv("DB_HOST_READ")
+        if host and host != writer.url.host:
+            _reader_engine = create_engine(writer.url.set(host=host), **_ENGINE_KW)
+        else:
+            _reader_engine = writer
+    return _reader_engine
 
-    def get_bind(self, mapper=None, clause=None, **kw):
-        if self._flushing or isinstance(clause, (Insert, Update, Delete)):
-            return engine
-        return reader_engine
+# session factory function
+_session_factory = sessionmaker(class_=SASession, expire_on_commit=False)
 
 
-# expire_on_commit=False keeps committed objects populated so returning a
-# just-written row does not trigger a reload off the (slightly lagging) replica.
-Session = sessionmaker(class_=RoutingSession, expire_on_commit=False)
-session = Session()
+def Session() -> SASession:
+    return _session_factory(bind=get_engine())
 
 
-# --- Reader engine -----------------------------------------------------------
-# A second engine pointed at the read replica (DB_HOST_READ), inheriting the
-# writer's creds/port/db. If DB_HOST_READ is unset or equals the writer host,
-# the reader falls back to the writer. Bound by RoutingSession for SELECTs and
-# used by /health/ready.
-_reader_host = os.getenv("DB_HOST_READ")
-# engine.url is a real URL object (keeps the password); str() would mask it as
-# "***" and the reader would fail auth.
-_writer_url = engine.url
+def ReadOnlySession() -> SASession:
+    return _session_factory(bind=get_reader_engine())
 
-if _reader_host and _reader_host != _writer_url.host:
-    reader_engine = create_engine(
-        _writer_url.set(host=_reader_host),
-        pool_pre_ping=True,
-        connect_args=_CONNECT_ARGS,
-    )
-else:
-    reader_engine = engine
 
-ReaderSession = sessionmaker(bind=reader_engine)
-
-Base = declarative_base()
+def __getattr__(name: str):
+    if name == "engine":
+        return get_engine()
+    if name == "reader_engine":
+        return get_reader_engine()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

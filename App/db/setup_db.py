@@ -1,109 +1,51 @@
-"""
-setup_db.py
------------
-Idempotent migration entrypoint for the one-off ECS task.
-
-Reads DATABASE_URL (the writer) from the environment, ensures the named schema
-exists, sets the search_path, and — if the schema has not yet been populated —
-runs Database/schema.sql followed by Database/seed_data.sql.
-
-This is a *create-or-skip* migration, not a versioned one: schema evolution on an
-already-migrated DB is out of scope (Alembic is the documented future path).
-
-Run with:
-    python -m App.db.setup_db
-"""
-
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-from psycopg2 import connect, sql
+from psycopg2 import connect
 
-# Schema namespace (matches App/db/session.py default).
-SCHEMA_NAME = os.getenv("DB_SCHEMA", "crimedb")
-# A table from schema.sql whose presence indicates the schema is already populated.
+from .session import SCHEMA
+
 SENTINEL_TABLE = "address"
+ADVISORY_LOCK_KEY = 8_531_207
 
-
+# project root directory, two levels up from this file
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
+# read the .sql files 
+def _read_sql(name: str) -> str:
+    return (_project_root() / "Database" / name).read_text(encoding="utf-8")
 
-def _read_sql_file(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
-
-
-_CHAR_TO_VARCHAR = [
-    ("person",         "gender",           "VARCHAR(1)"),
-    ("person",         "contact_number",   "VARCHAR(15)"),
-    ("case_details",   "crime_type",       "VARCHAR(50)"),
-    ("case_details",   "case_status",      "VARCHAR(10)"),
-    ("police_officer", "rank",             "VARCHAR(50)"),
-    ("police_officer", "department",       "VARCHAR(100)"),
-    ("criminal",       "c_family_contact", "VARCHAR(15)"),
-    ("suspect",        "family_contact",   "VARCHAR(15)"),
-    ("suspect",        "arrest_status",    "VARCHAR(50)"),
-    ("victim",         "family_contact",   "VARCHAR(15)"),
-    ("witness",        "family_contact",   "VARCHAR(15)"),
-    ("punishment",     "death_penalty",    "VARCHAR(1)"),
-]
-
-
-_LOWERCASE_COLS = {("case_details", "case_status"), ("suspect", "arrest_status")}
-
-
-def _apply_char_to_varchar(cur) -> None:
-    """Convert any remaining CHAR columns to VARCHAR, trimming stored padding. Idempotent."""
-    for table, col, new_type in _CHAR_TO_VARCHAR:
-        if (table, col) in _LOWERCASE_COLS:
-            using = f"lower(trim({col}))"
-        else:
-            using = f"trim({col})"
-        cur.execute(f"ALTER TABLE {table} ALTER COLUMN {col} TYPE {new_type} USING {using}")
-
-
-def _schema_is_populated(cur, schema_name: str) -> bool:
+# check if the schema is already populated by looking for the sentinel table
+def _schema_is_populated(cur) -> bool:
     cur.execute(
         "SELECT 1 FROM information_schema.tables "
         "WHERE table_schema = %s AND table_name = %s",
-        (schema_name, SENTINEL_TABLE),
+        (SCHEMA, SENTINEL_TABLE),
     )
     return cur.fetchone() is not None
 
-
-def run_migration(database_url: str, schema_name: str = SCHEMA_NAME) -> bool:
-    """Ensure the schema exists and is seeded.
-
-    Returns True if migration ran, False if it was a no-op (already migrated).
-    """
-    root = _project_root()
-    schema_sql = _read_sql_file(root / "Database" / "schema.sql")
-    seed_sql = _read_sql_file(root / "Database" / "seed_data.sql")
-
+# run the migration by executing the SQL files if the schema is not already populated
+def run_migration(database_url: str) -> bool:
     conn = connect(database_url)
     try:
         conn.autocommit = False
         with conn.cursor() as cur:
-            # Create-if-missing schema, then scope all work to it.
-            cur.execute(
-                sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(
-                    sql.Identifier(schema_name)
-                )
-            )
-            cur.execute(
-                sql.SQL("SET search_path TO {}").format(sql.Identifier(schema_name))
-            )
+            cur.execute("SELECT pg_advisory_xact_lock(%s)", (ADVISORY_LOCK_KEY,))
 
-            if _schema_is_populated(cur, schema_name):
-                _apply_char_to_varchar(cur)
+            if _schema_is_populated(cur):
                 conn.commit()
                 return False
 
-            cur.execute(schema_sql)
-            cur.execute(seed_sql)
-            _apply_char_to_varchar(cur)
+            cur.execute(_read_sql("schema.sql"))
+            cur.execute(_read_sql("seed_data.sql"))
+
+            if not _schema_is_populated(cur):
+                raise RuntimeError(
+                    f"schema.sql did not create {SENTINEL_TABLE!r} in schema {SCHEMA!r}."
+                )
         conn.commit()
         return True
     except Exception:
@@ -118,12 +60,13 @@ def main() -> None:
     if not database_url:
         raise RuntimeError("DATABASE_URL environment variable is required.")
 
-    ran = run_migration(database_url)
-    if ran:
-        print(f"Migration applied to schema '{SCHEMA_NAME}'.")
+    if run_migration(database_url):
+        print(f"Migration applied to schema '{SCHEMA}'.")
     else:
-        print(f"Schema '{SCHEMA_NAME}' already migrated — no-op.")
+        print(f"Schema '{SCHEMA}' already migrated — no-op.")
 
 
 if __name__ == "__main__":
     main()
+
+
