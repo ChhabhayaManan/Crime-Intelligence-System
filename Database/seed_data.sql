@@ -1,6 +1,5 @@
-      
+SET search_path TO crimedb;
 
--- ==================== ADDRESS TABLE ====================
 INSERT INTO Address (address_id, street_address, city, state, postal_code, country) VALUES
 (1, '123 Main St', 'Los Angeles', 'California', '90001', 'USA'),
 (2, '456 Oak Ave', 'London', 'England', 'EC1A 1BB', 'UK'),
@@ -136,7 +135,7 @@ INSERT INTO Address (address_id, street_address, city, state, postal_code, count
 (98, 'Skywalker Ranch', 'Lucas Valley', 'California', '94904', 'USA'),
 (99, 'Dinosaur Island', 'Prehistoric', 'N/A', '00018', 'Prehistoric World');
 
--- ==================== PERSON TABLE ====================
+
 INSERT INTO Person (personID, gender, birth_date, first_name, middle_name, last_name, address_id, occupation, contact_number) VALUES
 (1, 'M', '1980-05-15', 'John', 'David', 'Smith', 1, 'Accountant', '555-0101'),
 (2, 'F', '1985-07-22', 'Emily', NULL, 'Johnson', 2, 'Teacher', '555-0102'),
@@ -218,118 +217,116 @@ INSERT INTO Person (personID, gender, birth_date, first_name, middle_name, last_
 (304, 'F', '1989-04-17', 'Linda', '', 'Martinez', 104, 'Detective', '555-0304'),
 (305, 'M', '1975-10-29', 'Frank', '', 'Wilson', 104, 'Captain', '555-0305');
 
--- ==================== CASE DETAILS TABLE ====================
 INSERT INTO Case_Details (case_id, open_date, crime_date, end_date, complaint_detail, crime_type, crime_location, case_status, personID) VALUES
-(1, '2020-01-05', '2020-01-04', '2020-03-15', 'Burglary at a family residence during nighttime. The intruder took valuable electronics.', 'Residential Burglary', 3, 'Closed', 3),
-(2, '2020-02-12', '2020-02-10', '2020-05-20', 'A physical altercation occurred in a shopping mall parking lot. Victim suffered injuries from an attack.', 'Aggravated Assault', 102, 'Closed', 19),
-(3, '2020-03-18', '2020-03-15', '2020-06-30', 'Graffiti was spray-painted on a historic landmark in the city center.', 'Vandalism', 103, 'Closed', 27),
-(4, '2020-04-22', '2020-04-20', '2020-07-10', 'Shoplifting incident at a retail store. The suspect stole items worth $500.', 'Shoplifting', 104, 'Closed', 39),
-(5, '2020-05-30', '2020-05-28', '2020-08-25', 'A domestic dispute led to physical violence between a couple, resulting in injuries.', 'Domestic Violence', 6, 'Closed', 6),
-(6, '2020-06-15', '2020-06-14', '2020-09-05', 'A vehicle was stolen overnight from a residential parking lot.', 'Auto Theft', 106, 'Closed', 23),
-(7, '2020-07-20', '2020-07-18', '2020-10-30', 'Drug possession found on a suspect near a public park. Narcotics were seized.', 'Drug Possession', 107, 'Closed', 35),
-(8, '2020-08-25', '2020-08-23', '2020-12-15', 'Robbery at a convenience store. The suspect threatened staff with a weapon and stole cash.', 'Armed Robbery', 108, 'Closed', 15),
-(9, '2020-09-10', '2020-09-08', '2021-01-20', 'Fraudulent credit card transactions at multiple online stores. The victim lost $2000.', 'Credit Card Fraud', NULL, 'Closed', 31),
-(10, '2020-10-05', '2020-10-03', '2021-02-10', 'Hit and run accident at an intersection. The vehicle fled the scene.', 'Hit and Run', 110, 'Closed', 45),
-(11, '2021-01-12', '2021-01-10', '2021-04-05', 'Burglary at a business premises. The thief broke in after hours and stole expensive equipment.', 'Commercial Burglary', 111, 'Closed', 3),
-(12, '2021-02-18', '2021-02-16', '2021-05-22', 'Assault with a weapon in a bar district. The victim was struck with a bottle during a fight.', 'Aggravated Assault', 112, 'Closed', 19),
-(13, '2021-03-24', '2021-03-22', '2021-06-30', 'Graffiti defacing a public building near the city center. Authorities are looking for suspects.', 'Vandalism', 113, 'Closed', 27),
-(14, '2021-04-30', '2021-04-28', '2021-08-15', 'Package theft from a front porch in a suburban neighborhood. Suspect was caught on security footage.', 'Package Theft', 114, 'Closed', 39),
-(15, '2021-05-15', '2021-05-13', '2021-09-20', 'Domestic violence incident involving a verbal and physical altercation between a couple.', 'Domestic Violence', 115, 'Closed', 7),
-(16, '2021-06-20', '2021-06-18', '2021-10-25', 'Theft of vehicle parts from a secured parking garage. License plates were stolen from several cars.', 'Auto Theft', 116, 'Closed', 23),
-(17, '2021-07-25', '2021-07-23', '2021-11-30', 'Drug trafficking operation uncovered in an industrial area. Multiple arrests were made.', 'Drug Trafficking', 117, 'Closed', 35),
-(18, '2021-08-30', '2021-08-28', '2022-01-15', 'Armed robbery at a jewelry store. The suspect made off with a large quantity of precious items.', 'Armed Robbery', 118, 'Closed', 15),
-(19, '2021-09-15', '2021-09-13', '2022-02-20', 'Identity theft involving the misuse of personal data to open fraudulent accounts online.', 'Identity Theft', NULL, 'Closed', 31),
-(20, '2021-10-20', '2021-10-18', '2022-03-25', 'DUI accident involving a crash on a major highway. Driver was arrested on-site.', 'DUI', 120, 'Closed', 45),
-(21, '2022-01-25', '2022-01-23', '2022-05-10', 'Home invasion in a quiet suburban neighborhood. The suspect was armed and threatened the residents.', 'Home Invasion', 121, 'Closed', 3),
-(22, '2022-02-28', '2022-02-26', '2022-06-15', 'Physical altercation during a bar fight. Victim was severely injured and required medical attention.', 'Bar Fight', 122, 'Closed', 19),
-(23, '2022-03-15', '2022-03-13', '2022-07-20', 'Vandalism of parked vehicles in an apartment complex. Several cars were keyed and had their tires slashed.', 'Vehicle Vandalism', 123, 'Closed', 27),
-(24, '2022-04-20', '2022-04-18', '2022-08-25', 'Shoplifting incident in a department store. Suspect took electronics worth $800 and fled.', 'Shoplifting', 124, 'Closed', 39),
-(25, '2022-05-25', '2022-05-23', '2022-09-30', 'Domestic dispute between roommates led to a violent altercation. The victim suffered injuries and required medical attention.', 'Domestic Violence', 125, 'Closed', 7),
-(26, '2022-06-30', '2022-06-28', '2022-11-05', 'Theft of a motorcycle from a residential street overnight. Surveillance footage identified the suspect vehicle.', 'Motorcycle Theft', 126, 'Closed', 23),
-(27, '2022-07-15', '2022-07-13', '2022-12-20', 'Drug possession discovered during a routine traffic stop. The driver was arrested.', 'Drug Possession', 127, 'Closed', 35),
-(28, '2022-08-20', '2022-08-18', '2023-01-25', 'Robbery at a local convenience store. The suspect threatened staff with a weapon and stole cash.', 'Robbery', 128, 'Closed', 15),
-(29, '2022-09-25', '2022-09-23', '2023-02-28', 'Fraudulent use of stolen credit card information for online purchases.', 'Credit Card Fraud', NULL, 'Closed', 31),
-(30, '2022-10-30', '2022-10-28', '2023-04-05', 'Hit and run accident at an intersection. The vehicle responsible fled the scene.', 'Hit and Run', 130, 'Closed', 45),
-(31, '2023-01-10', '2023-01-08', NULL, 'Burglary in progress at a residential property. Police are investigating.', 'Burglary', 101, 'Open', 3),
-(32, '2023-02-15', '2023-02-13', NULL, 'Assault case reported at a local high school. The suspect is being investigated.', 'Assault', 132, 'Open', 19),
-(33, '2023-03-20', '2023-03-18', NULL, 'Vandalism at a public library. Authorities are searching for suspects.', 'Vandalism', 133, 'Open', 27),
-(34, '2023-04-25', '2023-04-23', NULL, 'Theft case under investigation at a shopping mall. Police are gathering evidence.', 'Theft', 134, 'Open', 39),
-(35, '2023-05-30', '2023-05-28', NULL, 'Domestic incident between partners reported. Police are conducting interviews.', 'Domestic Violence', 135, 'Open', 7),
-(36, '2023-06-05', '2023-06-03', NULL, 'Vehicle theft under investigation in a local neighborhood.', 'Auto Theft', 136, 'Open', 23),
-(37, '2023-07-10', '2023-07-08', NULL, 'Ongoing investigation into drug activity in a residential area.', 'Drug Offense', 137, 'Open', 35),
-(38, '2023-08-15', '2023-08-13', NULL, 'Robbery investigation at a bank. Suspects are being identified.', 'Robbery', 138, 'Open', 15),
-(39, '2023-09-20', '2023-09-18', NULL, 'Fraud case involving unauthorized online transactions. Investigation ongoing.', 'Fraud', 139, 'Open', 31),
-(40, '2023-10-25', '2023-10-23', NULL, 'Traffic incident under investigation at a busy intersection.', 'Traffic Offense', 140, 'Open', 45),
-(101, '2023-02-20', '2023-02-18', NULL, 'Armed robbery of downtown bank', 'Bank Robbery', 56, 'Open', 99),
-(102, '2023-03-15', '2023-03-10', NULL, 'Large-scale drug distribution operation', 'Drug Trafficking', 65, 'Open', 99),
-(103, '2023-01-10', '2023-01-08', '2023-06-15', 'Residential burglary with stolen jewelry', 'Burglary', 85, 'Closed', 99),
-(104, '2023-04-05', '2023-04-01', NULL, 'Credit card fraud scheme', 'Fraud', 44, 'Open', 99),
-(105, '2023-05-12', '2023-05-10', '2023-08-20', 'Bar fight resulting in serious injuries', 'Assault', 5, 'Closed', 99),
-(1001, '2020-01-05', '2020-01-04', '2020-06-15', 'Armed robbery of convenience store', 'Robbery', 107, 'Closed', 301),
-(1002, '2021-03-12', '2021-03-10', '2021-09-20', 'Burglary of residential property', 'Burglary', 5, 'Closed', 301),
-(1003, '2022-05-18', '2022-05-15', '2022-11-30', 'Assault with deadly weapon', 'Aggravated Assault', 9, 'Closed', 302),
-(1004, '2019-02-10', '2019-02-08', '2019-07-25', 'Drug possession with intent to sell', 'Drug Offense', 11, 'Closed', 302),
-(1005, '2020-04-15', '2020-04-12', '2020-10-10', 'Vehicle theft', 'Auto Theft', 7, 'Closed', 301),
-(1006, '2021-06-20', '2021-06-18', '2021-12-15', 'Credit card fraud', 'Fraud', NULL, 'Closed', 302),
-(1007, '2022-08-25', '2022-08-22', '2023-02-28', 'Identity theft', 'Fraud', NULL, 'Closed', 301),
-(107, '2023-01-01', '2023-01-01', '2023-03-01', 'Burglary', 'Burglary', 5, 'Closed', 104),
-(108, '2023-02-01', '2023-02-01', '2023-04-01', 'Assault', 'Assault', 15, 'Closed', 104),
-(109, '2023-03-01', '2023-03-01', '2023-05-01', 'Theft', 'Theft', 13, 'Closed', 104),
-(110, '2023-04-01', '2023-04-01', '2023-06-01', 'Fraud', 'Fraud', 11, 'Closed', 104),
-(111, '2023-05-01', '2023-05-01', '2023-07-01', 'Vandalism', 'Vandalism', 13, 'Closed', 104),
-(106, '2023-06-01', '2023-06-01', NULL, 'Robbery', 'Robbery', 25, 'Open', 104),
-(201, '2023-01-05', '2023-01-05', '2023-03-05', 'Drug Possession', 'Drug Offense', 32, 'Closed', 105),
-(202, '2023-02-05', '2023-02-05', '2023-04-05', 'DUI', 'Traffic Offense', 33, 'Closed', 105),
-(203, '2023-03-05', '2023-03-05', '2023-05-05', 'Shoplifting', 'Theft', 15, 'Closed', 105),
-(204, '2023-04-05', '2023-04-05', NULL, 'Domestic Violence', 'Assault', 5, 'Open', 105),
-(205, '2023-05-05', '2023-05-05', NULL, 'Burglary', 'Burglary', 64, 'Open', 105),
-(206, '2023-06-05', '2023-06-05', '2023-08-05', 'Fraud', 'Fraud', 21, 'Closed', 105),
-(207, '2023-07-05', '2023-07-05', NULL, 'Vandalism', 'Vandalism', 40, 'Open', 105),
-(301, '2023-01-10', '2023-01-10', '2023-03-10', 'Assault', 'Assault', 45, 'Closed', 106),
-(302, '2023-02-10', '2023-02-10', NULL, 'Theft', 'Theft', 38, 'Open', 106),
-(303, '2023-03-10', '2023-03-10', NULL, 'Burglary', 'Burglary', 5, 'Open', 106),
-(304, '2023-04-10', '2023-04-10', '2023-06-10', 'Fraud', 'Fraud', NULL, 'Closed', 106),
-(305, '2023-05-10', '2023-05-10', NULL, 'Robbery', 'Robbery', 64, 'Open', 106),
-(306, '2023-06-10', '2023-06-10', '2023-08-10', 'Vandalism', 'Vandalism', 95, 'Closed', 106);
+(1, '2020-01-05', '2020-01-04', '2020-03-15', 'Burglary at a family residence during nighttime. The intruder took valuable electronics.', 'Residential Burglary', 3, 'closed', 3),
+(2, '2020-02-12', '2020-02-10', '2020-05-20', 'A physical altercation occurred in a shopping mall parking lot. Victim suffered injuries from an attack.', 'Aggravated Assault', 102, 'closed', 19),
+(3, '2020-03-18', '2020-03-15', '2020-06-30', 'Graffiti was spray-painted on a historic landmark in the city center.', 'Vandalism', 103, 'closed', 27),
+(4, '2020-04-22', '2020-04-20', '2020-07-10', 'Shoplifting incident at a retail store. The suspect stole items worth $500.', 'Shoplifting', 104, 'closed', 39),
+(5, '2020-05-30', '2020-05-28', '2020-08-25', 'A domestic dispute led to physical violence between a couple, resulting in injuries.', 'Domestic Violence', 6, 'closed', 6),
+(6, '2020-06-15', '2020-06-14', '2020-09-05', 'A vehicle was stolen overnight from a residential parking lot.', 'Auto Theft', 106, 'closed', 23),
+(7, '2020-07-20', '2020-07-18', '2020-10-30', 'Drug possession found on a suspect near a public park. Narcotics were seized.', 'Drug Possession', 107, 'closed', 35),
+(8, '2020-08-25', '2020-08-23', '2020-12-15', 'Robbery at a convenience store. The suspect threatened staff with a weapon and stole cash.', 'Armed Robbery', 108, 'closed', 15),
+(9, '2020-09-10', '2020-09-08', '2021-01-20', 'Fraudulent credit card transactions at multiple online stores. The victim lost $2000.', 'Credit Card Fraud', NULL, 'closed', 31),
+(10, '2020-10-05', '2020-10-03', '2021-02-10', 'Hit and run accident at an intersection. The vehicle fled the scene.', 'Hit and Run', 110, 'closed', 45),
+(11, '2021-01-12', '2021-01-10', '2021-04-05', 'Burglary at a business premises. The thief broke in after hours and stole expensive equipment.', 'Commercial Burglary', 111, 'closed', 3),
+(12, '2021-02-18', '2021-02-16', '2021-05-22', 'Assault with a weapon in a bar district. The victim was struck with a bottle during a fight.', 'Aggravated Assault', 112, 'closed', 19),
+(13, '2021-03-24', '2021-03-22', '2021-06-30', 'Graffiti defacing a public building near the city center. Authorities are looking for suspects.', 'Vandalism', 113, 'closed', 27),
+(14, '2021-04-30', '2021-04-28', '2021-08-15', 'Package theft from a front porch in a suburban neighborhood. Suspect was caught on security footage.', 'Package Theft', 114, 'closed', 39),
+(15, '2021-05-15', '2021-05-13', '2021-09-20', 'Domestic violence incident involving a verbal and physical altercation between a couple.', 'Domestic Violence', 115, 'closed', 7),
+(16, '2021-06-20', '2021-06-18', '2021-10-25', 'Theft of vehicle parts from a secured parking garage. License plates were stolen from several cars.', 'Auto Theft', 116, 'closed', 23),
+(17, '2021-07-25', '2021-07-23', '2021-11-30', 'Drug trafficking operation uncovered in an industrial area. Multiple arrests were made.', 'Drug Trafficking', 117, 'closed', 35),
+(18, '2021-08-30', '2021-08-28', '2022-01-15', 'Armed robbery at a jewelry store. The suspect made off with a large quantity of precious items.', 'Armed Robbery', 118, 'closed', 15),
+(19, '2021-09-15', '2021-09-13', '2022-02-20', 'Identity theft involving the misuse of personal data to open fraudulent accounts online.', 'Identity Theft', NULL, 'closed', 31),
+(20, '2021-10-20', '2021-10-18', '2022-03-25', 'DUI accident involving a crash on a major highway. Driver was arrested on-site.', 'DUI', 120, 'closed', 45),
+(21, '2022-01-25', '2022-01-23', '2022-05-10', 'Home invasion in a quiet suburban neighborhood. The suspect was armed and threatened the residents.', 'Home Invasion', 121, 'closed', 3),
+(22, '2022-02-28', '2022-02-26', '2022-06-15', 'Physical altercation during a bar fight. Victim was severely injured and required medical attention.', 'Bar Fight', 122, 'closed', 19),
+(23, '2022-03-15', '2022-03-13', '2022-07-20', 'Vandalism of parked vehicles in an apartment complex. Several cars were keyed and had their tires slashed.', 'Vehicle Vandalism', 123, 'closed', 27),
+(24, '2022-04-20', '2022-04-18', '2022-08-25', 'Shoplifting incident in a department store. Suspect took electronics worth $800 and fled.', 'Shoplifting', 124, 'closed', 39),
+(25, '2022-05-25', '2022-05-23', '2022-09-30', 'Domestic dispute between roommates led to a violent altercation. The victim suffered injuries and required medical attention.', 'Domestic Violence', 125, 'closed', 7),
+(26, '2022-06-30', '2022-06-28', '2022-11-05', 'Theft of a motorcycle from a residential street overnight. Surveillance footage identified the suspect vehicle.', 'Motorcycle Theft', 126, 'closed', 23),
+(27, '2022-07-15', '2022-07-13', '2022-12-20', 'Drug possession discovered during a routine traffic stop. The driver was arrested.', 'Drug Possession', 127, 'closed', 35),
+(28, '2022-08-20', '2022-08-18', '2023-01-25', 'Robbery at a local convenience store. The suspect threatened staff with a weapon and stole cash.', 'Robbery', 128, 'closed', 15),
+(29, '2022-09-25', '2022-09-23', '2023-02-28', 'Fraudulent use of stolen credit card information for online purchases.', 'Credit Card Fraud', NULL, 'closed', 31),
+(30, '2022-10-30', '2022-10-28', '2023-04-05', 'Hit and run accident at an intersection. The vehicle responsible fled the scene.', 'Hit and Run', 130, 'closed', 45),
+(31, '2023-01-10', '2023-01-08', NULL, 'Burglary in progress at a residential property. Police are investigating.', 'Burglary', 101, 'open', 3),
+(32, '2023-02-15', '2023-02-13', NULL, 'Assault case reported at a local high school. The suspect is being investigated.', 'Assault', 132, 'open', 19),
+(33, '2023-03-20', '2023-03-18', NULL, 'Vandalism at a public library. Authorities are searching for suspects.', 'Vandalism', 133, 'open', 27),
+(34, '2023-04-25', '2023-04-23', NULL, 'Theft case under investigation at a shopping mall. Police are gathering evidence.', 'Theft', 134, 'open', 39),
+(35, '2023-05-30', '2023-05-28', NULL, 'Domestic incident between partners reported. Police are conducting interviews.', 'Domestic Violence', 135, 'open', 7),
+(36, '2023-06-05', '2023-06-03', NULL, 'Vehicle theft under investigation in a local neighborhood.', 'Auto Theft', 136, 'open', 23),
+(37, '2023-07-10', '2023-07-08', NULL, 'Ongoing investigation into drug activity in a residential area.', 'Drug Offense', 137, 'open', 35),
+(38, '2023-08-15', '2023-08-13', NULL, 'Robbery investigation at a bank. Suspects are being identified.', 'Robbery', 138, 'open', 15),
+(39, '2023-09-20', '2023-09-18', NULL, 'Fraud case involving unauthorized online transactions. Investigation ongoing.', 'Fraud', 139, 'open', 31),
+(40, '2023-10-25', '2023-10-23', NULL, 'Traffic incident under investigation at a busy intersection.', 'Traffic Offense', 140, 'open', 45),
+(101, '2023-02-20', '2023-02-18', NULL, 'Armed robbery of downtown bank', 'Bank Robbery', 56, 'open', 99),
+(102, '2023-03-15', '2023-03-10', NULL, 'Large-scale drug distribution operation', 'Drug Trafficking', 65, 'open', 99),
+(103, '2023-01-10', '2023-01-08', '2023-06-15', 'Residential burglary with stolen jewelry', 'Burglary', 85, 'closed', 99),
+(104, '2023-04-05', '2023-04-01', NULL, 'Credit card fraud scheme', 'Fraud', 44, 'open', 99),
+(105, '2023-05-12', '2023-05-10', '2023-08-20', 'Bar fight resulting in serious injuries', 'Assault', 5, 'closed', 99),
+(1001, '2020-01-05', '2020-01-04', '2020-06-15', 'Armed robbery of convenience store', 'Robbery', 107, 'closed', 301),
+(1002, '2021-03-12', '2021-03-10', '2021-09-20', 'Burglary of residential property', 'Burglary', 5, 'closed', 301),
+(1003, '2022-05-18', '2022-05-15', '2022-11-30', 'Assault with deadly weapon', 'Aggravated Assault', 9, 'closed', 302),
+(1004, '2019-02-10', '2019-02-08', '2019-07-25', 'Drug possession with intent to sell', 'Drug Offense', 11, 'closed', 302),
+(1005, '2020-04-15', '2020-04-12', '2020-10-10', 'Vehicle theft', 'Auto Theft', 7, 'closed', 301),
+(1006, '2021-06-20', '2021-06-18', '2021-12-15', 'Credit card fraud', 'Fraud', NULL, 'closed', 302),
+(1007, '2022-08-25', '2022-08-22', '2023-02-28', 'Identity theft', 'Fraud', NULL, 'closed', 301),
+(107, '2023-01-01', '2023-01-01', '2023-03-01', 'Burglary', 'Burglary', 5, 'closed', 104),
+(108, '2023-02-01', '2023-02-01', '2023-04-01', 'Assault', 'Assault', 15, 'closed', 104),
+(109, '2023-03-01', '2023-03-01', '2023-05-01', 'Theft', 'Theft', 13, 'closed', 104),
+(110, '2023-04-01', '2023-04-01', '2023-06-01', 'Fraud', 'Fraud', 11, 'closed', 104),
+(111, '2023-05-01', '2023-05-01', '2023-07-01', 'Vandalism', 'Vandalism', 13, 'closed', 104),
+(106, '2023-06-01', '2023-06-01', NULL, 'Robbery', 'Robbery', 25, 'open', 104),
+(201, '2023-01-05', '2023-01-05', '2023-03-05', 'Drug Possession', 'Drug Offense', 32, 'closed', 105),
+(202, '2023-02-05', '2023-02-05', '2023-04-05', 'DUI', 'Traffic Offense', 33, 'closed', 105),
+(203, '2023-03-05', '2023-03-05', '2023-05-05', 'Shoplifting', 'Theft', 15, 'closed', 105),
+(204, '2023-04-05', '2023-04-05', NULL, 'Domestic Violence', 'Assault', 5, 'open', 105),
+(205, '2023-05-05', '2023-05-05', NULL, 'Burglary', 'Burglary', 64, 'open', 105),
+(206, '2023-06-05', '2023-06-05', '2023-08-05', 'Fraud', 'Fraud', 21, 'closed', 105),
+(207, '2023-07-05', '2023-07-05', NULL, 'Vandalism', 'Vandalism', 40, 'open', 105),
+(301, '2023-01-10', '2023-01-10', '2023-03-10', 'Assault', 'Assault', 45, 'closed', 106),
+(302, '2023-02-10', '2023-02-10', NULL, 'Theft', 'Theft', 38, 'open', 106),
+(303, '2023-03-10', '2023-03-10', NULL, 'Burglary', 'Burglary', 5, 'open', 106),
+(304, '2023-04-10', '2023-04-10', '2023-06-10', 'Fraud', 'Fraud', NULL, 'closed', 106),
+(305, '2023-05-10', '2023-05-10', NULL, 'Robbery', 'Robbery', 64, 'open', 106),
+(306, '2023-06-10', '2023-06-10', '2023-08-10', 'Vandalism', 'Vandalism', 95, 'closed', 106);
 
--- ==================== SUSPECT TABLE ====================
 INSERT INTO Suspect (s_personID, physical_description, family_contact, arrest_status) VALUES
-(51, 'Tall, brown hair, tattoo on right arm', '555-2001', 'Arrested'),
-(53, 'Medium build, black hair, scar on chin', '555-2003', 'Wanted'),
-(55, 'Short, blonde hair, blue eyes', '555-2005', 'Arrested'),
-(57, 'Tall, bald, muscular build', '555-2007', 'Released'),
-(59, 'Average height, brown hair, glasses', '555-2009', 'Arrested'),
-(61, 'Short, red hair, freckles', '555-2011', 'Arrested'),
-(63, 'Tall, black hair, beard', '555-2013', 'Wanted'),
-(65, 'Medium height, brown hair, tattoo on neck', '555-2015', 'Arrested'),
-(67, 'Short, blonde hair, pierced nose', '555-2017', 'Arrested'),
-(69, 'Tall, brown hair, scar above eye', '555-2019', 'Wanted'),
-(71, 'Average height, black hair, glasses', '555-2021', 'Arrested'),
-(73, 'Short, brown hair, muscular build', '555-2023', 'Released'),
-(75, 'Tall, blonde hair, blue eyes', '555-2025', 'Arrested'),
-(79, 'Medium height, black hair, tattoo on arm', '555-2029', 'Arrested'),
-(1, 'Tall, thin, dark hair', '555-2001', 'Released'),
-(5, 'Medium build, blonde hair', '555-2002', 'Arrested'),
-(9, 'Short, stocky, red hair', '555-2003', 'Released'),
-(11, 'Tall, muscular, bald', '555-2004', 'Arrested'),
-(13, 'Average, brown hair, glasses', '555-2005', 'Released'),
-(17, 'Short, dark hair, beard', '555-2006', 'Arrested'),
-(21, 'Medium, blonde hair, scar', '555-2007', 'Wanted'),
-(25, 'Tall, black hair, tattoo', '555-2008', 'Arrested'),
-(29, 'Short, brown hair, pierced', '555-2009', 'Released'),
-(33, 'Average, red hair, glasses', '555-2010', 'Arrested'),
-(37, 'Tall, dark hair, muscular', '555-2011', 'Released'),
-(41, 'Medium, blonde hair, scar', '555-2012', 'Arrested'),
-(43, 'Short, dark hair, thin', '555-2013', 'Released'),
-(45, 'Average, brown hair, tattoo', '555-2014', 'Arrested'),
-(47, 'Tall, red hair, glasses', '555-2015', 'Wanted'),
-(49, 'Medium, black hair, beard', '555-2016', 'Arrested'),
-(7, 'Short, brown hair, scar', '555-2017', 'Released'),
-(15, 'Tall, blonde hair, athletic', '555-2018', 'Arrested'),
-(23, 'Average, dark hair, glasses', '555-2019', 'Released'),
-(31, 'Medium, brown hair, tattoo', '555-2020', 'Arrested');
+(51, 'Tall, brown hair, tattoo on right arm', '555-2001', 'arrested'),
+(53, 'Medium build, black hair, scar on chin', '555-2003', 'wanted'),
+(55, 'Short, blonde hair, blue eyes', '555-2005', 'arrested'),
+(57, 'Tall, bald, muscular build', '555-2007', 'released'),
+(59, 'Average height, brown hair, glasses', '555-2009', 'arrested'),
+(61, 'Short, red hair, freckles', '555-2011', 'arrested'),
+(63, 'Tall, black hair, beard', '555-2013', 'wanted'),
+(65, 'Medium height, brown hair, tattoo on neck', '555-2015', 'arrested'),
+(67, 'Short, blonde hair, pierced nose', '555-2017', 'arrested'),
+(69, 'Tall, brown hair, scar above eye', '555-2019', 'wanted'),
+(71, 'Average height, black hair, glasses', '555-2021', 'arrested'),
+(73, 'Short, brown hair, muscular build', '555-2023', 'released'),
+(75, 'Tall, blonde hair, blue eyes', '555-2025', 'arrested'),
+(79, 'Medium height, black hair, tattoo on arm', '555-2029', 'arrested'),
+(1, 'Tall, thin, dark hair', '555-2001', 'released'),
+(5, 'Medium build, blonde hair', '555-2002', 'arrested'),
+(9, 'Short, stocky, red hair', '555-2003', 'released'),
+(11, 'Tall, muscular, bald', '555-2004', 'arrested'),
+(13, 'Average, brown hair, glasses', '555-2005', 'released'),
+(17, 'Short, dark hair, beard', '555-2006', 'arrested'),
+(21, 'Medium, blonde hair, scar', '555-2007', 'wanted'),
+(25, 'Tall, black hair, tattoo', '555-2008', 'arrested'),
+(29, 'Short, brown hair, pierced', '555-2009', 'released'),
+(33, 'Average, red hair, glasses', '555-2010', 'arrested'),
+(37, 'Tall, dark hair, muscular', '555-2011', 'released'),
+(41, 'Medium, blonde hair, scar', '555-2012', 'arrested'),
+(43, 'Short, dark hair, thin', '555-2013', 'released'),
+(45, 'Average, brown hair, tattoo', '555-2014', 'arrested'),
+(47, 'Tall, red hair, glasses', '555-2015', 'wanted'),
+(49, 'Medium, black hair, beard', '555-2016', 'arrested'),
+(7, 'Short, brown hair, scar', '555-2017', 'released'),
+(15, 'Tall, blonde hair, athletic', '555-2018', 'arrested'),
+(23, 'Average, dark hair, glasses', '555-2019', 'released'),
+(31, 'Medium, brown hair, tattoo', '555-2020', 'arrested');
 
--- ==================== POLICE OFFICER TABLE ====================
+
 INSERT INTO Police_Officer (p_personID, rank, department) VALUES
 (3, 'Sergeant', 'Patrol Division'),
 (19, 'Lieutenant', 'Detective Bureau'),
@@ -347,7 +344,6 @@ INSERT INTO Police_Officer (p_personID, rank, department) VALUES
 (105, 'Sergeant', 'Narcotics'),
 (106, 'Officer', 'Patrol');
 
--- ==================== VICTIM TABLE ====================
 INSERT INTO Victim (v_personID, harm_details, family_contact) VALUES
 (2, 'Minor bruises from assault', '555-0202'),
 (4, 'Stress because of burglary', '555-0204'),
@@ -373,7 +369,6 @@ INSERT INTO Victim (v_personID, harm_details, family_contact) VALUES
 (202, 'Property loss from burglary', '555-1202'),
 (203, 'Financial loss from fraud', '555-1203');
 
--- ==================== WITNESS TABLE ====================
 INSERT INTO Witness (w_personID, family_contact, testimony) VALUES
 (2, '555-0502', 'I saw the suspect leaving the store hurriedly around 9 PM.'),
 (4, '555-0504', 'There was a loud argument before the window shattered.'),
@@ -391,31 +386,26 @@ INSERT INTO Witness (w_personID, family_contact, testimony) VALUES
 (28, '555-0528', 'I heard a scream and then saw someone running away.'),
 (30, '555-0530', 'The suspect dropped something while fleeing the scene.');
 
--- ==================== CRIMINAL TABLE ====================
--- NOTE: Persons 1,5,11,15,17,21,25,29,31,33,37,41,45,47,49 are referenced in
--- Punishment but were missing from Criminal — added below using their Suspect
--- family_contact values. Persons 101-103 are the original criminal entries.
 INSERT INTO Criminal (c_personID, c_family_contact) VALUES
-(1,   '555-2001'),   -- John Smith       — convicted: case 1  (Residential Burglary)
-(5,   '555-2002'),   -- David Wilson      — convicted: case 2  (Aggravated Assault)
-(11,  '555-2004'),   -- Daniel Hernandez  — convicted: case 7  (Drug Possession)
-(15,  '555-2018'),   -- Joseph Lopez      — convicted: case 8  (Armed Robbery)
-(17,  '555-2006'),   -- William Green     — convicted: case 5  (Domestic Violence)
-(21,  '555-2007'),   -- Kevin Nelson      — convicted: case 12 (Aggravated Assault)
-(25,  '555-2008'),   -- Edward Roberts    — convicted: case 8  (Armed Robbery)
-(29,  '555-2009'),   -- Jason Parker      — convicted: case 15 (Domestic Violence)
-(31,  '555-2020'),   -- Jeffrey Edwards   — convicted: case 29 (Credit Card Fraud)
-(33,  '555-2010'),   -- Brian Stewart     — convicted: case 17 (Drug Trafficking)
-(37,  '555-2011'),   -- Timothy Reed      — convicted: case 22 (Bar Fight)
-(41,  '555-2012'),   -- Joshua Murphy     — convicted: case 24 (Shoplifting)
-(45,  '555-2014'),   -- Stephen Richardson— convicted: case 10 (Hit and Run)
-(47,  '555-2015'),   -- Gregory Howard    — convicted: case 28 (Robbery)
-(49,  '555-2016'),   -- Ralph Torres      — convicted: case 18 (Armed Robbery)
+(1,   '555-2001'),
+(5,   '555-2002'),
+(11,  '555-2004'),
+(15,  '555-2018'),
+(17,  '555-2006'),
+(21,  '555-2007'),
+(25,  '555-2008'),
+(29,  '555-2009'),
+(31,  '555-2020'),
+(33,  '555-2010'),
+(37,  '555-2011'),
+(41,  '555-2012'),
+(45,  '555-2014'),
+(47,  '555-2015'),
+(49,  '555-2016'),
 (101, '555-0401'),
 (102, '555-0402'),
 (103, '555-0403');
 
--- ==================== EVIDENCE TABLE ====================
 INSERT INTO Evidence (evidence_id, description, collection_date, location_id) VALUES
 (1, 'Fingerprint on window', '2020-01-05', 1),
 (2, 'Security camera footage', '2020-02-12', 2),
@@ -458,9 +448,7 @@ INSERT INTO Evidence (evidence_id, description, collection_date, location_id) VA
 (39, 'Credit card skimmer', '2023-09-20', 110),
 (40, 'Traffic camera images', '2023-10-25', 110);
 
--- ==================== RELATED JUNCTION TABLES ====================
 
--- Testifies_In (witnesses testifying in cases)
 INSERT INTO Testifies_In (case_id, open_date, w_personID) VALUES
 (1, '2020-01-05', 4),
 (2, '2020-02-12', 2),
@@ -497,7 +485,6 @@ INSERT INTO Testifies_In (case_id, open_date, w_personID) VALUES
 (39, '2023-09-20', 16),
 (40, '2023-10-25', 14);
 
--- Collected_For (evidence linked to cases)
 INSERT INTO Collected_For (evidence_id, case_id, open_date) VALUES
 (1, 1, '2020-01-05'),
 (2, 2, '2020-02-12'),
@@ -540,7 +527,6 @@ INSERT INTO Collected_For (evidence_id, case_id, open_date) VALUES
 (39, 39, '2023-09-20'),
 (40, 40, '2023-10-25');
 
--- Trial (trials for cases)
 INSERT INTO Trial (case_id, open_date, trial_number, hearing, judge_id, court_level) VALUES
 (1, '2020-01-05', 1, '2020-04-10', 13, 'District Court'),
 (2, '2020-02-12', 1, '2020-05-15', 13, 'District Court'),
@@ -583,7 +569,6 @@ INSERT INTO Trial (case_id, open_date, trial_number, hearing, judge_id, court_le
 (39, '2023-09-20', 1, '2024-03-20', 13, 'District Court'),
 (40, '2023-10-25', 1, '2024-04-25', 13, 'Traffic Court');
 
--- Assigned_To (officers assigned to cases)
 INSERT INTO Assigned_To (p_personID, case_id, open_date) VALUES
 (3, 1, '2020-01-05'),
 (19, 2, '2020-02-12'),
@@ -652,7 +637,6 @@ INSERT INTO Assigned_To (p_personID, case_id, open_date) VALUES
 (106, 305, '2023-05-10'),
 (106, 306, '2023-06-10');
 
--- Affected_By (victims linked to cases)
 INSERT INTO Affected_By (v_personID, case_id, open_date) VALUES
 (2, 2, '2020-02-12'),
 (4, 1, '2020-01-05'),
@@ -682,7 +666,6 @@ INSERT INTO Affected_By (v_personID, case_id, open_date) VALUES
 (203, 1006, '2021-06-20'),
 (201, 1007, '2022-08-25');
 
--- Involved_In (suspects linked to cases)
 INSERT INTO Involved_In (case_id, open_date, s_personID) VALUES
 (1, '2020-01-05', 1),
 (2, '2020-02-12', 5),
@@ -739,7 +722,6 @@ INSERT INTO Involved_In (case_id, open_date, s_personID) VALUES
 (105, '2023-05-12', 75),
 (105, '2023-05-12', 79);
 
--- Punishment (for criminals)
 INSERT INTO Punishment (c_personID, case_id, open_date, fine, jail_start_date, jail_end_date, death_penalty) VALUES
 (1, 1, '2020-01-05', 500, '2020-04-15', '2020-10-15', 'N'),
 (5, 2, '2020-02-12', 1000, '2020-05-20', '2021-05-20', 'N'),
@@ -764,7 +746,6 @@ INSERT INTO Punishment (c_personID, case_id, open_date, fine, jail_start_date, j
 (103, 1006, '2021-06-20', 2000, '2021-12-20', '2022-06-20', 'N'),
 (103, 1007, '2022-08-25', 5000, '2023-03-01', '2024-03-01', 'N');
 
--- Linked_to (evidence linked to suspects)
 INSERT INTO Linked_to (case_id, open_date, s_personID, evidence_id) VALUES
 (1, '2020-01-05', 1, 1),
 (2, '2020-02-12', 5, 2),
@@ -807,7 +788,6 @@ INSERT INTO Linked_to (case_id, open_date, s_personID, evidence_id) VALUES
 (39, '2023-09-20', 23, 39),
 (40, '2023-10-25', 31, 40);
 
--- Pointed_to (witnesses pointing to suspects)
 INSERT INTO Pointed_to (case_id, open_date, s_personID, w_personID) VALUES
 (1, '2020-01-05', 1, 4),
 (2, '2020-02-12', 5, 2),
@@ -843,3 +823,9 @@ INSERT INTO Pointed_to (case_id, open_date, s_personID, w_personID) VALUES
 (38, '2023-08-15', 15, 18),
 (39, '2023-09-20', 23, 16),
 (40, '2023-10-25', 31, 14);
+
+--just restarting the seed so it doesn't collide with the existing data
+ALTER TABLE Address ALTER COLUMN address_id RESTART WITH 141;
+ALTER TABLE Person ALTER COLUMN personID RESTART WITH 306;
+ALTER TABLE Case_Details ALTER COLUMN case_id RESTART WITH 1008;
+ALTER TABLE Evidence ALTER COLUMN evidence_id RESTART WITH 41;
