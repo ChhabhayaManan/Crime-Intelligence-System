@@ -1,13 +1,7 @@
 """
-analytics.py
-------------
-Read-only analytics / reporting queries.
-
-Functions
----------
-  get_crime_hotspots – GET /analytics/hotspots
+Functions for crime analytics queries in the Crime Intelligence System.
+- get_crime_hotspots: Counts cases per city, filtered by city and date range.
 """
-
 from __future__ import annotations
 
 from sqlalchemy import func
@@ -20,15 +14,11 @@ from App.schema.case import (
     CrimeHotspotResponse,
 )
 
-# ---------------------------------------------------------------------------
-# Crime hotspots
-# ---------------------------------------------------------------------------
 
 def get_crime_hotspots(
     db: Session,
     query: CrimeHotspotQuery,
 ) -> CrimeHotspotResponse:
-    """Aggregate case counts by city with optional filters. Returns cities sorted by count desc."""
     q = (
         db.query(Address.city, func.count(CaseDetail.case_id).label("case_count"))
         .join(CaseDetail, CaseDetail.crime_location == Address.address_id)
@@ -48,9 +38,9 @@ def get_crime_hotspots(
     )
 
     items = [
-        CrimeHotspotItem(city=row.city or "Unknown", case_count=row.case_count)
+        CrimeHotspotItem(city=row.city, case_count=row.case_count)
         for row in rows
-        if row.city  # skip NULL cities
+        if row.city
     ]
 
     return CrimeHotspotResponse(items=items)

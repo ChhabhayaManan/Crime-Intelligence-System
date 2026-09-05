@@ -1,24 +1,22 @@
-"""
-deps.py
--------
-Shared FastAPI dependencies.
-
-  get_db — yields a SQLAlchemy session per request.
-
-Auth dependencies (get_current_user, get_current_active_user) live in
-App.CRUD.auth to avoid circular imports, but are also importable from here
-for convenience once the module graph is resolved at runtime.
-"""
-
 from typing import Generator
+
+from fastapi import Request
 from sqlalchemy.orm import Session
-from App.db.session import Session as SessionLocal
+
+from App.db.session import ReadOnlySession, Session as WriteSession
+
+_READ_ONLY_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
-def get_db() -> Generator[Session, None, None]:
-    """Yield a SQLAlchemy session and close it after the request."""
-    db = SessionLocal()
+def get_db(request: Request) -> Generator[Session, None, None]:
+    read_only = request.method in _READ_ONLY_METHODS
+    db = (ReadOnlySession if read_only else WriteSession)()
     try:
         yield db
+        if not read_only:
+            db.commit()
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()

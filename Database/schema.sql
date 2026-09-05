@@ -109,6 +109,7 @@ CREATE TABLE Testifies_In (
     case_id         INT NOT NULL,
     open_date       DATE NOT NULL,
     w_personID      INT NOT NULL,
+    testimony       VARCHAR(255),
     PRIMARY KEY (case_id, open_date, w_personID),
     FOREIGN KEY (case_id, open_date) REFERENCES Case_Details(case_id, open_date) ON DELETE CASCADE,
     FOREIGN KEY (w_personID) REFERENCES Witness(w_personID) ON DELETE CASCADE

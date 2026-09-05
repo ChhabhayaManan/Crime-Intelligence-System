@@ -1,40 +1,35 @@
 """
-evidence.py
------------
-CRUD operations for Evidence entities.
-
-Functions
----------
-  add_case_evidence   – POST /cases/{case_id}/evidence
-  list_case_evidence  – GET  /cases/{case_id}/evidence
-  get_evidence        – GET  /evidence/{evidence_id}
-  update_evidence     – PATCH /evidence/{evidence_id}
+Functions for evidence CRUD operations and S3 file handling in the Crime Intelligence System.
+- ev_read: Converts an Evidence row to an EvidenceRead for a given case.
+- _primary_case: Returns an evidence row's earliest case link, deterministically.
+- _fetch_evidence: Fetches an Evidence row with its case links eager-loaded.
+- add_case_evidence: Creates evidence and links it to a case.
+- list_case_evidence: Lists all evidence collected for a case.
+- get_evidence: Fetches one evidence record with its case context.
+- upload_evidence_file: Uploads a file to the S3 evidence bucket and returns its key.
+- attach_evidence_file: Stores the uploaded file's key, content type and size on the evidence row.
+- update_evidence: Applies partial updates to an evidence record.
 """
-
 from __future__ import annotations
+
 import os
 from datetime import date
 from uuid import uuid4
 
-import boto3
-from sqlalchemy.orm import Session
-from App.db.models import (
-    CollectedFor,
-    Evidence,
-)
+from sqlalchemy.orm import Session, joinedload, selectinload
+
+from App.db.models import CollectedFor, Evidence
 from App.schema.case import (
     CaseEvidenceCreateRequest,
     CaseEvidenceCreateResponse,
     CaseEvidenceListResponse,
+    CaseEvidenceUpdateRequest,
     EvidenceRead,
 )
-from App.CRUD.common import next_id, not_found, fetch_case
+from App.CRUD.common import fetch_case, not_found
 
-# ---------------------------------------------------------------------------
-# Internal mapper
-# ---------------------------------------------------------------------------
 
-def _ev_read(ev: Evidence, case_id: int, open_date: date) -> EvidenceRead:
+def ev_read(ev: Evidence, case_id: int, open_date: date) -> EvidenceRead:
     return EvidenceRead(
         evidence_id=ev.evidence_id,
         case_id=case_id,
@@ -48,9 +43,26 @@ def _ev_read(ev: Evidence, case_id: int, open_date: date) -> EvidenceRead:
     )
 
 
-# ---------------------------------------------------------------------------
-# Public functions
-# ---------------------------------------------------------------------------
+def _primary_case(ev: Evidence) -> CollectedFor:
+    links = sorted(
+        ev.collected_for_entries, key=lambda cf: (cf.open_date, cf.case_id)
+    )
+    if not links:
+        raise ValueError(f"Evidence {ev.evidence_id} has no associated case.")
+    return links[0]
+
+
+def _fetch_evidence(db: Session, evidence_id: int) -> Evidence:
+    ev = (
+        db.query(Evidence)
+        .options(selectinload(Evidence.collected_for_entries))
+        .filter(Evidence.evidence_id == evidence_id)
+        .first()
+    )
+    if ev is None:
+        not_found("Evidence", evidence_id)
+    return ev
+
 
 def add_case_evidence(
     db: Session,
@@ -58,12 +70,9 @@ def add_case_evidence(
     payload: CaseEvidenceCreateRequest,
     open_date: date | None = None,
 ) -> CaseEvidenceCreateResponse:
-    """Create a new Evidence row and link it to the given case via CollectedFor."""
     case = fetch_case(db, case_id, open_date)
 
-    new_ev_id = next_id(db, Evidence, "evidence_id")
     ev = Evidence(
-        evidence_id=new_ev_id,
         description=payload.description,
         collection_date=payload.collected_at,
         location_id=payload.location_id,
@@ -71,17 +80,19 @@ def add_case_evidence(
     db.add(ev)
     db.flush()
 
-    cf = CollectedFor(
-        evidence_id=new_ev_id,
-        case_id=case.case_id,
-        open_date=case.open_date,
+    db.add(
+        CollectedFor(
+            evidence_id=ev.evidence_id,
+            case_id=case.case_id,
+            open_date=case.open_date,
+        )
     )
-    db.add(cf)
-    db.commit()
-    db.refresh(ev)
+    db.flush()
 
-    ev_read = _ev_read(ev, case.case_id, case.open_date)
-    return CaseEvidenceCreateResponse(evidence_id=ev.evidence_id, evidence=ev_read)
+    return CaseEvidenceCreateResponse(
+        evidence_id=ev.evidence_id,
+        evidence=ev_read(ev, case.case_id, case.open_date),
+    )
 
 
 def list_case_evidence(
@@ -89,37 +100,30 @@ def list_case_evidence(
     case_id: int,
     open_date: date | None = None,
 ) -> CaseEvidenceListResponse:
-    """Return all evidence items collected for a given case."""
     case = fetch_case(db, case_id, open_date)
 
-    items = [
-        _ev_read(cf.evidence, cf.case_id, cf.open_date)
-        for cf in case.collected_for_entries
-    ]
+    links = (
+        db.query(CollectedFor)
+        .options(joinedload(CollectedFor.evidence))
+        .filter(
+            CollectedFor.case_id == case.case_id,
+            CollectedFor.open_date == case.open_date,
+        )
+        .all()
+    )
 
     return CaseEvidenceListResponse(
         case_id=case.case_id,
         open_date=case.open_date,
-        items=items,
+        items=[ev_read(cf.evidence, cf.case_id, cf.open_date) for cf in links],
     )
 
 
 def get_evidence(db: Session, evidence_id: int) -> EvidenceRead:
-    """Fetch a single evidence item by ID."""
-    ev = db.get(Evidence, evidence_id)
-    if ev is None:
-        not_found("Evidence", evidence_id)
+    ev = _fetch_evidence(db, evidence_id)
+    cf = _primary_case(ev)
+    return ev_read(ev, cf.case_id, cf.open_date)
 
-    cf = ev.collected_for_entries[0] if ev.collected_for_entries else None  # type: ignore[union-attr]
-    if cf is None:
-        raise ValueError(f"Evidence {evidence_id} has no associated case.")
-
-    return _ev_read(ev, cf.case_id, cf.open_date)  # type: ignore[arg-type]
-
-
-# ---------------------------------------------------------------------------
-# Evidence file storage (S3)
-# ---------------------------------------------------------------------------
 
 def upload_evidence_file(
     content: bytes,
@@ -127,10 +131,8 @@ def upload_evidence_file(
     content_type: str,
     ext: str,
 ) -> str:
-    """Upload an evidence file to the S3 evidence bucket and return its key.
+    import boto3
 
-    Credentials are resolved from the ECS task role — none are stored in code.
-    """
     bucket = os.environ["S3_EVIDENCE_BUCKET"]
     key = f"evidence/{evidence_id}/{uuid4().hex}.{ext}"
 
@@ -151,49 +153,33 @@ def attach_evidence_file(
     content_type: str,
     size: int,
 ) -> EvidenceRead:
-    """Persist file metadata onto an existing evidence row."""
-    ev = db.get(Evidence, evidence_id)
-    if ev is None:
-        not_found("Evidence", evidence_id)
+    ev = _fetch_evidence(db, evidence_id)
 
-    ev.file_key = key  # type: ignore[union-attr]
-    ev.file_content_type = content_type  # type: ignore[union-attr]
-    ev.file_size = size  # type: ignore[union-attr]
+    ev.file_key = key
+    ev.file_content_type = content_type
+    ev.file_size = size
+    db.flush()
 
-    db.commit()
-    db.refresh(ev)
-
-    cf = ev.collected_for_entries[0] if ev.collected_for_entries else None  # type: ignore[union-attr]
-    if cf is None:
-        raise ValueError(f"Evidence {evidence_id} has no associated case.")
-
-    return _ev_read(ev, cf.case_id, cf.open_date)  # type: ignore[arg-type]
+    cf = _primary_case(ev)
+    return ev_read(ev, cf.case_id, cf.open_date)
 
 
 def update_evidence(
     db: Session,
     evidence_id: int,
-    description: str | None = None,
-    location_id: int | None = None,
-    collected_at: date | None = None,
+    payload: CaseEvidenceUpdateRequest,
 ) -> EvidenceRead:
-    """Partially update an evidence record."""
-    ev = db.get(Evidence, evidence_id)
-    if ev is None:
-        not_found("Evidence", evidence_id)
+    ev = _fetch_evidence(db, evidence_id)
+    given = payload.model_dump(exclude_unset=True)
 
-    if description is not None:
-        ev.description = description  # type: ignore[union-attr]
-    if location_id is not None:
-        ev.location_id = location_id  # type: ignore[union-attr]
-    if collected_at is not None:
-        ev.collection_date = collected_at  # type: ignore[union-attr]
+    if "description" in given:
+        ev.description = payload.description
+    if "location_id" in given:
+        ev.location_id = payload.location_id
+    if "collected_at" in given:
+        ev.collection_date = payload.collected_at
 
-    db.commit()
-    db.refresh(ev)
+    db.flush()
 
-    cf = ev.collected_for_entries[0] if ev.collected_for_entries else None  # type: ignore[union-attr]
-    if cf is None:
-        raise ValueError(f"Evidence {evidence_id} has no associated case.")
-
-    return _ev_read(ev, cf.case_id, cf.open_date)  # type: ignore[arg-type]
+    cf = _primary_case(ev)
+    return ev_read(ev, cf.case_id, cf.open_date)

@@ -27,6 +27,21 @@ def _schema_is_populated(cur) -> bool:
     )
     return cur.fetchone() is not None
 
+# columns added to schema.sql after the first release, applied to already-migrated schemas
+_COLUMN_ADDITIONS = (
+    ("testifies_in", "testimony", "VARCHAR(255)"),
+)
+
+
+# add any post-release columns that an already-populated schema is missing
+def _apply_column_additions(cur) -> None:
+    for table, column, column_type in _COLUMN_ADDITIONS:
+        cur.execute(
+            f"ALTER TABLE {SCHEMA}.{table} "
+            f"ADD COLUMN IF NOT EXISTS {column} {column_type}"
+        )
+
+
 # run the migration by executing the SQL files if the schema is not already populated
 def run_migration(database_url: str) -> bool:
     conn = connect(database_url)
@@ -36,6 +51,7 @@ def run_migration(database_url: str) -> bool:
             cur.execute("SELECT pg_advisory_xact_lock(%s)", (ADVISORY_LOCK_KEY,))
 
             if _schema_is_populated(cur):
+                _apply_column_additions(cur)
                 conn.commit()
                 return False
 

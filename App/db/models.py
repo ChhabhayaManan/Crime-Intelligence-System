@@ -68,26 +68,26 @@ class Person(ReprMixin, Base):
         foreign_keys="CaseDetail.person_id",
     )
     police_profile: Mapped[Optional["PoliceOfficer"]] = relationship(
-        back_populates="person", uselist=False, **_CASCADE
+        back_populates="person", uselist=False, lazy="selectin", **_CASCADE
     )
     criminal_profile: Mapped[Optional["Criminal"]] = relationship(
-        back_populates="person", uselist=False, **_CASCADE
+        back_populates="person", uselist=False, lazy="selectin", **_CASCADE
     )
     suspect_profile: Mapped[Optional["Suspect"]] = relationship(
-        back_populates="person", uselist=False, **_CASCADE
+        back_populates="person", uselist=False, lazy="selectin", **_CASCADE
     )
     victim_profile: Mapped[Optional["Victim"]] = relationship(
-        back_populates="person", uselist=False, **_CASCADE
+        back_populates="person", uselist=False, lazy="selectin", **_CASCADE
     )
     witness_profile: Mapped[Optional["Witness"]] = relationship(
-        back_populates="person", uselist=False, **_CASCADE
+        back_populates="person", uselist=False, lazy="selectin", **_CASCADE
     )
 
 # case detail ORM table to store case information
 class CaseDetail(ReprMixin, Base):
     __tablename__ = "case_details"
 
-    case_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    case_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     open_date: Mapped[date] = mapped_column(Date, primary_key=True)
     crime_date: Mapped[Optional[date]] = mapped_column(Date)
     end_date: Mapped[Optional[date]] = mapped_column(Date)
@@ -315,6 +315,7 @@ class TestifiesIn(ReprMixin, Base):
     witness_person_id: Mapped[int] = mapped_column(
         "w_personid", Integer, primary_key=True
     )
+    testimony: Mapped[Optional[str]] = mapped_column(String(255))
 
     case_detail: Mapped["CaseDetail"] = relationship(
         back_populates="testifies_in_entries"
