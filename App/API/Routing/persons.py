@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
 from App.API.deps import get_db
 from App.schema.core import (
@@ -23,10 +23,7 @@ router = APIRouter(tags=["persons"])
 
 @router.post("/persons", response_model=PersonCreateResponse, status_code=201)
 def create_person_endpoint(payload: PersonCreate, db=Depends(get_db)):
-    try:
-        return create_person(db, payload)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    return create_person(db, payload)
 
 
 @router.get("/persons", response_model=PersonListResponse)
@@ -42,23 +39,14 @@ def list_persons_endpoint(
 
 @router.get("/persons/{person_id}", response_model=PersonRead)
 def get_person_endpoint(person_id: int, db=Depends(get_db)):
-    try:
-        return get_person(db, person_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    return get_person(db, person_id)
 
 
 @router.patch("/persons/{person_id}", response_model=PersonRead)
 def update_person_endpoint(person_id: int, payload: PersonUpdate, db=Depends(get_db)):
-    try:
-        return update_person(db, person_id, payload)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    return update_person(db, person_id, payload)
 
 
 @router.get("/persons/{person_id}/cases", response_model=list[PersonCaseLink])
 def get_person_cases_endpoint(person_id: int, db=Depends(get_db)):
-    try:
-        return get_person_cases(db, person_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    return get_person_cases(db, person_id)

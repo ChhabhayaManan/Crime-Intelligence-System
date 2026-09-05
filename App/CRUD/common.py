@@ -1,7 +1,8 @@
 """
 Functions for common CRUD operations and utilities in the Crime Intelligence System.
 - build_full_name: Constructs a full name from a Person object.
-- not_found: Raises a ValueError when an entity is not found.
+- NotFoundError: ValueError subclass the API maps to 404.
+- not_found: Raises a NotFoundError when an entity is not found.
 - paginate: Paginates a SQLAlchemy query.
 - person_roles: Lists the roles a Person currently holds.
 - build_person_summary: Builds a summary of a Person, including their roles.
@@ -53,8 +54,12 @@ def build_full_name(person: Person) -> str | None:
     )
 
 
+class NotFoundError(ValueError):
+    pass
+
+
 def not_found(entity: str, id_: object) -> NoReturn:
-    raise ValueError(f"{entity} with id={id_!r} not found.")
+    raise NotFoundError(f"{entity} with id={id_!r} not found.")
 
 
 def paginate(query, page: int, page_size: int):
@@ -107,13 +112,19 @@ def fetch_case(
     return case
 
 
-def fetch_trial(db: Session, case_id: int, trial_id: int) -> Trial:
-    trial = (
-        db.query(Trial)
-        .filter(Trial.case_id == case_id, Trial.trial_number == trial_id)
-        .order_by(Trial.open_date.desc())
-        .first()
+def fetch_trial(
+    db: Session,
+    case_id: int,
+    trial_id: int,
+    open_date: date | None = None,
+) -> Trial:
+    q = db.query(Trial).filter(
+        Trial.case_id == case_id, Trial.trial_number == trial_id
     )
+    if open_date is not None:
+        q = q.filter(Trial.open_date == open_date)
+
+    trial = q.order_by(Trial.open_date.desc()).first()
     if trial is None:
         not_found("Trial", trial_id)
     return trial

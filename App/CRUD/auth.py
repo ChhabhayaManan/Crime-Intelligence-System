@@ -1,5 +1,6 @@
 """
 Functions for user authentication and JWT handling in the Crime Intelligence System.
+- AuthError: ValueError subclass the API maps to 401.
 - _hash_password: Hashes a plaintext password.
 - _verify_password: Checks a plaintext password against a hash.
 - CurrentUser: Holds the authenticated user's id and username.
@@ -35,6 +36,10 @@ from App.schema.core import (
     UserOut,
     UserRegisterRequest,
 )
+
+
+class AuthError(ValueError):
+    pass
 
 
 _jwt_secret = os.getenv("JWT_SECRET")
@@ -120,10 +125,10 @@ def login_user(db: Session, payload: UserLoginRequest) -> TokenOut:
 
     if not user:
         _verify_password(payload.password, _DUMMY_HASH)
-        raise ValueError("Incorrect username or password.")
+        raise AuthError("Incorrect username or password.")
 
     if not _verify_password(payload.password, user.hashed_password):
-        raise ValueError("Incorrect username or password.")
+        raise AuthError("Incorrect username or password.")
 
     user.last_login = datetime.now(tz=timezone.utc)
     db.flush()
@@ -142,19 +147,19 @@ def refresh_access_token(db: Session, refresh_token: str) -> TokenRefreshOut:
     try:
         payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
     except InvalidTokenError:
-        raise ValueError("Could not validate credentials.") from None
+        raise AuthError("Could not validate credentials.") from None
 
     if payload.get("typ") != "refresh":
-        raise ValueError("Could not validate credentials.")
+        raise AuthError("Could not validate credentials.")
 
     try:
         user_id = int(payload.get("sub"))
     except (TypeError, ValueError):
-        raise ValueError("Could not validate credentials.") from None
+        raise AuthError("Could not validate credentials.") from None
 
     user = db.get(AppUser, user_id)
     if user is None:
-        raise ValueError("Could not validate credentials.")
+        raise AuthError("Could not validate credentials.")
 
     access_token, expires_at = _create_access_token(user.user_id, user.username)
     return TokenRefreshOut(
@@ -167,10 +172,10 @@ def change_password(db: Session, payload: ChangePasswordRequest) -> UserOut:
 
     if not user:
         _verify_password(payload.current_password, _DUMMY_HASH)
-        raise ValueError("Incorrect username or current password.")
+        raise AuthError("Incorrect username or current password.")
 
     if not _verify_password(payload.current_password, user.hashed_password):
-        raise ValueError("Incorrect username or current password.")
+        raise AuthError("Incorrect username or current password.")
 
     user.hashed_password = _hash_password(payload.new_password)
     db.flush()

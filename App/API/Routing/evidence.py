@@ -11,6 +11,7 @@ from App.schema.case import (
     CaseEvidenceUpdateRequest,
     EvidenceRead,
 )
+from App.CRUD.common import not_found
 from App.CRUD.evidence import (
     add_case_evidence,
     attach_evidence_file,
@@ -19,6 +20,7 @@ from App.CRUD.evidence import (
     update_evidence,
     upload_evidence_file,
 )
+
 router = APIRouter(tags=["evidence"])
 
 _MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -38,10 +40,7 @@ def add_evidence_endpoint(
     open_date: date | None = Query(default=None),
     db=Depends(get_db),
 ):
-    try:
-        return add_case_evidence(db, case_id, payload, open_date)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    return add_case_evidence(db, case_id, payload, open_date)
 
 
 @router.get("/cases/{case_id}/evidence", response_model=CaseEvidenceListResponse)
@@ -50,18 +49,12 @@ def list_evidence_endpoint(
     open_date: date | None = Query(default=None),
     db=Depends(get_db),
 ):
-    try:
-        return list_case_evidence(db, case_id, open_date)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    return list_case_evidence(db, case_id, open_date)
 
 
 @router.get("/evidence/{evidence_id}", response_model=EvidenceRead)
 def get_evidence_endpoint(evidence_id: int, db=Depends(get_db)):
-    try:
-        return get_evidence(db, evidence_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    return get_evidence(db, evidence_id)
 
 
 @router.post("/evidence/{evidence_id}/file", response_model=EvidenceRead)
@@ -70,9 +63,8 @@ def upload_evidence_file_endpoint(
     file: UploadFile = File(...),
     db=Depends(get_db),
 ):
-    ev = db.get(Evidence, evidence_id)
-    if ev is None:
-        raise HTTPException(status_code=404, detail=f"Evidence {evidence_id} not found.")
+    if db.get(Evidence, evidence_id) is None:
+        not_found("Evidence", evidence_id)
 
     filename = file.filename or ""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -90,10 +82,7 @@ def upload_evidence_file_endpoint(
         raise HTTPException(status_code=413, detail="File exceeds the 10 MB limit.")
 
     key = upload_evidence_file(content, evidence_id, content_type, ext)
-    try:
-        return attach_evidence_file(db, evidence_id, key, content_type, len(content))
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    return attach_evidence_file(db, evidence_id, key, content_type, len(content))
 
 
 @router.patch("/evidence/{evidence_id}", response_model=EvidenceRead)
@@ -102,7 +91,4 @@ def update_evidence_endpoint(
     payload: CaseEvidenceUpdateRequest,
     db=Depends(get_db),
 ):
-    try:
-        return update_evidence(db, evidence_id, payload)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    return update_evidence(db, evidence_id, payload)

@@ -138,8 +138,9 @@ def get_trial_detail(
     db: Session,
     case_id: int,
     trial_id: int,
+    open_date: date | None = None,
 ) -> TrialDetailResponse:
-    trial = fetch_trial(db, case_id, trial_id)
+    trial = fetch_trial(db, case_id, trial_id, open_date)
 
     punishments = (
         db.query(Punishment)

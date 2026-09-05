@@ -37,6 +37,10 @@ class PageMeta(PageParams):
     total: int = Field(default=0, ge=0)
 
 
+class MessageResponse(SchemaModel):
+    detail: str
+
+
 class DateRangeQuery(SchemaModel):
     from_date: date | None = Field(default=None, alias="from")
     to_date: date | None = Field(default=None, alias="to")

@@ -73,11 +73,3 @@ def Session() -> SASession:
 
 def ReadOnlySession() -> SASession:
     return _session_factory(bind=get_reader_engine())
-
-
-def __getattr__(name: str):
-    if name == "engine":
-        return get_engine()
-    if name == "reader_engine":
-        return get_reader_engine()
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
