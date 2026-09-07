@@ -7,6 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from App.API import api_router
+from App.API.deps import READ_ONLY_METHODS
 from App.CRUD.auth import AuthError
 from App.CRUD.common import NotFoundError
 from App.db.session import get_engine, get_reader_engine
@@ -33,6 +34,31 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix="/api/v1")
+
+
+def _finish_db(request: Request, commit: bool) -> None:
+    db = getattr(request.state, "db", None)
+    if db is None:
+        return
+    request.state.db = None
+    try:
+        if commit and request.method not in READ_ONLY_METHODS:
+            db.commit()
+        else:
+            db.rollback()
+    finally:
+        db.close()
+
+
+@app.middleware("http")
+async def db_transaction(request: Request, call_next):
+    try:
+        response = await call_next(request)
+    except Exception:
+        _finish_db(request, commit=False)
+        raise
+    _finish_db(request, commit=response.status_code < 400)
+    return response
 
 
 def _error(status_code: int, detail: str, **kw) -> JSONResponse:
