@@ -1,58 +1,39 @@
-"""
-Unit tests for read/write session routing (App.db.session.RoutingSession).
+from types import SimpleNamespace
 
-Writes (flush / INSERT / UPDATE / DELETE) must bind to the primary engine;
-plain SELECTs must bind to the read replica engine. These tests monkeypatch
-the module-level engines to sentinels so routing decisions are observable
-without a live database.
-"""
+import pytest
 
-from sqlalchemy import select, insert, update, delete, table, column
-
-import App.db.session as db
+import App.API.deps as deps
 
 
-_t = table("t", column("x"))
+def _bind(monkeypatch, method):
+    monkeypatch.setattr(deps, "ReadOnlySession", lambda: "READER")
+    monkeypatch.setattr(deps, "WriteSession", lambda: "WRITER")
+    request = SimpleNamespace(method=method, state=SimpleNamespace())
+    db = next(deps.get_db(request))
+    assert request.state.db is db, "the middleware needs the session on request.state"
+    return db
 
 
-def _routing_session():
-    """A RoutingSession instance with no real bind (get_bind is overridden)."""
-    return db.RoutingSession()
+@pytest.mark.parametrize("method", sorted(deps.READ_ONLY_METHODS))
+def test_read_methods_use_the_reader(monkeypatch, method):
+    assert _bind(monkeypatch, method) == "READER"
 
 
-def test_select_routes_to_reader(monkeypatch):
-    monkeypatch.setattr(db, "engine", "WRITER")
-    monkeypatch.setattr(db, "reader_engine", "READER")
-    s = _routing_session()
-    assert s.get_bind(clause=select(_t)) == "READER"
+@pytest.mark.parametrize("method", ["POST", "PATCH", "PUT", "DELETE"])
+def test_write_methods_use_the_writer(monkeypatch, method):
+    assert _bind(monkeypatch, method) == "WRITER"
 
 
-def test_insert_routes_to_writer(monkeypatch):
-    monkeypatch.setattr(db, "engine", "WRITER")
-    monkeypatch.setattr(db, "reader_engine", "READER")
-    s = _routing_session()
-    assert s.get_bind(clause=insert(_t)) == "WRITER"
-
-
-def test_update_routes_to_writer(monkeypatch):
-    monkeypatch.setattr(db, "engine", "WRITER")
-    monkeypatch.setattr(db, "reader_engine", "READER")
-    s = _routing_session()
-    assert s.get_bind(clause=update(_t)) == "WRITER"
-
-
-def test_delete_routes_to_writer(monkeypatch):
-    monkeypatch.setattr(db, "engine", "WRITER")
-    monkeypatch.setattr(db, "reader_engine", "READER")
-    s = _routing_session()
-    assert s.get_bind(clause=delete(_t)) == "WRITER"
-
-
-def test_flush_routes_to_writer(monkeypatch):
-    monkeypatch.setattr(db, "engine", "WRITER")
-    monkeypatch.setattr(db, "reader_engine", "READER")
-    s = _routing_session()
-    # During a flush SQLAlchemy sets _flushing; a SELECT issued then must still
-    # hit the primary so writes never leak to the replica.
-    s._flushing = True
-    assert s.get_bind(clause=select(_t)) == "WRITER"
+def test_get_db_does_not_commit_itself(monkeypatch):
+    """The commit lives in the db_transaction middleware, not here."""
+    closed = []
+    monkeypatch.setattr(deps, "WriteSession", lambda: SimpleNamespace(
+        commit=lambda: closed.append("commit"),
+        rollback=lambda: closed.append("rollback"),
+        close=lambda: closed.append("close"),
+    ))
+    request = SimpleNamespace(method="POST", state=SimpleNamespace())
+    gen = deps.get_db(request)
+    next(gen)
+    list(gen)
+    assert closed == []
