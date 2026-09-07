@@ -37,6 +37,10 @@ mkdir -p "$RESULTS_DIR"
 
 log() { echo "[run_backend_test] $*"; }
 
+# Windows ships a python3 shim that only advertises the Store installer, so
+# pick the interpreter that actually executes rather than the first on PATH.
+if python3 -c "" >/dev/null 2>&1; then PYTHON=python3; else PYTHON=python; fi
+
 DESTROY_ON_EXIT=0
 K6_RUNTIME_SECONDS=0
 APPLY_START_EPOCH=""
@@ -52,7 +56,7 @@ cleanup() {
     }
     DESTROY_ON_EXIT=0
     if [ -n "$APPLY_START_EPOCH" ]; then
-      python3 "$REPO_ROOT/loadtest/scripts/estimate_cost.py" \
+      "$PYTHON" "$REPO_ROOT/loadtest/scripts/estimate_cost.py" \
         --start "$APPLY_START_EPOCH" --end "$(date +%s)" --k6-seconds "$K6_RUNTIME_SECONDS" \
         | tee "$RESULTS_DIR/cost.md"
     fi
@@ -70,8 +74,10 @@ if [ "$SKIP_APPLY" -eq 1 ]; then
     log "WARNING: --skip-apply without --apply-start-epoch, the cost line will undercount"
   fi
   log "confirming the live stack matches this config"
-  if ! terraform -chdir="$INFRA_DIR" plan -input=false -detailed-exitcode -var="force_destroy=true" >/tmp/k6-plan.log 2>&1; then
-    code=$?
+  # Capture the status directly: inside `if ! cmd`, $? is the negated result
+  # and would always read 0, hiding plan's -detailed-exitcode signal.
+  terraform -chdir="$INFRA_DIR" plan -input=false -detailed-exitcode -var="force_destroy=true" >/tmp/k6-plan.log 2>&1 && code=0 || code=$?
+  if [ "$code" -ne 0 ]; then
     if [ "$code" -eq 2 ]; then
       log "the live stack does not match this config, see /tmp/k6-plan.log"
     else
@@ -120,6 +126,33 @@ aws ecr get-login-password --region "$REGION" | docker login --username AWS --pa
 docker build -t "$K6_ECR_URL:latest" "$REPO_ROOT/loadtest/k6"
 docker push "$K6_ECR_URL:latest"
 
+# Reassemble a log stream into a file that reads exactly like the k6 terminal
+# output, banner included. Each console line is one CloudWatch event, so the
+# messages have to come back one per line and in order: --output text would
+# tab-join them onto a single line, and without --start-from-head the API
+# returns the tail rather than the beginning. One call caps at 1MB/10k events,
+# hence the paging loop.
+fetch_log_stream() {
+  local stream="$1" out="$2"
+  local token="" page next
+  : > "$out"
+  while :; do
+    if [ -z "$token" ]; then
+      page=$(aws logs get-log-events --log-group-name "$K6_LOG_GROUP" \
+        --log-stream-name "$stream" --start-from-head --output json)
+    else
+      page=$(aws logs get-log-events --log-group-name "$K6_LOG_GROUP" \
+        --log-stream-name "$stream" --start-from-head --next-token "$token" --output json)
+    fi
+    jq -r '.events[].message' <<<"$page" >> "$out"
+    next=$(jq -r '.nextForwardToken // empty' <<<"$page")
+    if [ -z "$next" ] || [ "$next" = "$token" ]; then
+      break
+    fi
+    token="$next"
+  done
+}
+
 run_k6_task() {
   local script_name="$1"
   local out_file="$RESULTS_DIR/${script_name%.js}.log"
@@ -153,8 +186,7 @@ run_k6_task() {
     --query 'tasks[0].containers[0].exitCode' --output text)
   log "task stopped with exit code $exit_code"
 
-  aws logs get-log-events --log-group-name "$K6_LOG_GROUP" --log-stream-name "k6/k6/$task_id" \
-    --query 'events[*].message' --output text > "$out_file"
+  fetch_log_stream "k6/k6/$task_id" "$out_file"
   log "summary saved to $out_file"
 }
 

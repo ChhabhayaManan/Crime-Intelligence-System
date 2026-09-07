@@ -41,7 +41,7 @@ export function setupAuthAndSeedCases() {
     `${BASE}/auth/register`,
     JSON.stringify({
       username,
-      email: `${username}@example.test`,
+      email: `${username}@example.com`,
       password,
       confirm_password: password,
     }),
