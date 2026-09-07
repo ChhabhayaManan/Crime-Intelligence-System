@@ -193,6 +193,12 @@ data "aws_iam_policy_document" "github_actions" {
       values   = ["ecs-tasks.amazonaws.com"]
     }
   }
+
+  statement {
+    sid       = "Ec2DescribeForMigration"
+    actions   = ["ec2:DescribeSubnets", "ec2:DescribeSecurityGroups"]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "github_actions" {
