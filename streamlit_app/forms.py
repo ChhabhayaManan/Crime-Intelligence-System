@@ -1,22 +1,29 @@
-"""st.dialog create/edit forms + entity pickers."""
 from datetime import date
 
 import streamlit as st
 import components as c
-from utils import api_get, api_post, api_patch, api_post_file, api_delete
+from utils import api_get_cached, api_post, api_patch, api_post_file
 
 GENDERS = ["", "M", "F", "O"]
 ARREST = ["wanted", "arrested", "released"]
 
-# Birth-date picker bounds: allow ~100 years into the past, never the future.
-# (st.date_input otherwise restricts selection to +/- 10 years.)
 _TODAY = date.today()
 _DOB_MIN = date(_TODAY.year - 100, 1, 1)
 
 
-# ── Subforms (no API) ─────────────────────────────────────────────────────────
+def _clear_pickers():
+    stale = [k for k in st.session_state if k.endswith(("_created_id", "_created_pid"))]
+    for k in stale:
+        del st.session_state[k]
+
+
+def _done(msg, warn=False):
+    _clear_pickers()
+    (st.warning if warn else st.success)(msg)
+    st.rerun()
+
+
 def address_subform(key):
-    """Render address inputs; return AddressCreate dict (city/state/pin/country required)."""
     street = st.text_input("Street", key=f"{key}_street")
     col1, col2 = st.columns(2)
     city = col1.text_input("City *", key=f"{key}_city")
@@ -29,15 +36,14 @@ def address_subform(key):
     return c.build_address_payload(street, city, state, pin, country)
 
 
-# ── Pickers ───────────────────────────────────────────────────────────────────
 def address_picker(label, key):
-    """Search existing addresses or create one inline. Returns address_id or None."""
     st.markdown(f"**{label}**")
     mode = st.radio("Source", ["Existing", "Create new"], horizontal=True,
                     key=f"{key}_mode", label_visibility="collapsed")
     if mode == "Existing":
         city = st.text_input("Filter by city", key=f"{key}_filter")
-        data, err = api_get("/addresses", {"city": city, "page_size": 50} if city else {"page_size": 50})
+        params = {"page_size": 50, "city": city} if city else {"page_size": 50}
+        data, err = api_get_cached("/addresses", params)
         if err:
             st.error(err)
             return None
@@ -48,7 +54,6 @@ def address_picker(label, key):
         opts = {f"#{a['address_id']} — {c.fmt_addr(a)}": a["address_id"] for a in items}
         choice = st.selectbox("Select address", list(opts.keys()), key=f"{key}_sel")
         return opts.get(choice)
-    # Create new
     created_key = f"{key}_created_id"
     if st.session_state.get(created_key):
         st.success(f"Address #{st.session_state[created_key]} created.")
@@ -66,7 +71,6 @@ def address_picker(label, key):
 
 
 def person_picker(label, key, role=None):
-    """Search existing persons or create inline. Returns person_id or None."""
     st.markdown(f"**{label}**")
     mode = st.radio("Source", ["Existing", "Create new"], horizontal=True,
                     key=f"{key}_mode", label_visibility="collapsed")
@@ -77,7 +81,7 @@ def person_picker(label, key, role=None):
             params["query"] = q
         if role:
             params["role"] = role
-        data, err = api_get("/persons", params)
+        data, err = api_get_cached("/persons", params)
         if err:
             st.error(err)
             return None
@@ -88,7 +92,6 @@ def person_picker(label, key, role=None):
         opts = {f"#{p['person_id']} — {c.person_name(p)}": p["person_id"] for p in items}
         choice = st.selectbox("Select person", list(opts.keys()), key=f"{key}_sel")
         return opts.get(choice)
-    # Create new person (needs address)
     col1, col2, col3 = st.columns(3)
     first = col1.text_input("First name", key=f"{key}_f")
     middle = col2.text_input("Middle", key=f"{key}_m")
@@ -121,7 +124,13 @@ def person_picker(label, key, role=None):
     return None
 
 
-# ── Top-level create dialogs ──────────────────────────────────────────────────
+def _label_options(records, id_key):
+    return {
+        f"#{r.get(id_key)} — {c.person_name(r.get('person'))}": r.get(id_key)
+        for r in records
+    }
+
+
 @st.dialog("New Address")
 def dialog_new_address():
     payload = address_subform("dlg_addr")
@@ -130,8 +139,7 @@ def dialog_new_address():
         if err:
             st.error(err)
         else:
-            st.success(f"Created address #{data['address_id']}.")
-            st.rerun()
+            _done(f"Created address #{data['address_id']}.")
 
 
 @st.dialog("New Person")
@@ -158,8 +166,7 @@ def dialog_new_person():
         if err:
             st.error(err)
         else:
-            st.success(f"Created person #{data['person_id']}.")
-            st.rerun()
+            _done(f"Created person #{data['person_id']}.")
 
 
 @st.dialog("New Case")
@@ -184,11 +191,9 @@ def dialog_new_case():
         if err:
             st.error(err)
         else:
-            st.success(f"Opened case #{data['case_id']} ({data.get('open_date')}).")
-            st.rerun()
+            _done(f"Opened case #{data['case_id']} ({data.get('open_date')}).")
 
 
-# ── Case child-record dialogs ─────────────────────────────────────────────────
 @st.dialog("Add Evidence")
 def dialog_add_evidence(case_id):
     desc = st.text_area("Description", max_chars=255)
@@ -207,11 +212,8 @@ def dialog_add_evidence(case_id):
         if up is not None:
             _, ferr = api_post_file(f"/evidence/{eid}/file", up.getvalue(), up.name, up.type)
             if ferr:
-                st.warning(f"Evidence #{eid} created but file failed: {ferr}")
-                st.rerun()
-                return
-        st.success(f"Evidence #{eid} added.")
-        st.rerun()
+                _done(f"Evidence #{eid} created but file failed: {ferr}", warn=True)
+        _done(f"Evidence #{eid} added.")
 
 
 @st.dialog("Add Suspect")
@@ -235,11 +237,8 @@ def dialog_add_suspect(case_id, evidence):
                    "arrest_status": arrest or None}
             _, uerr = api_patch(f"/cases/{case_id}/suspects/{sid}", upd)
             if uerr:
-                st.warning(f"Suspect #{sid} added, but detail update failed: {uerr}")
-                st.rerun()
-                return
-        st.success(f"Suspect #{sid} added.")
-        st.rerun()
+                _done(f"Suspect #{sid} added, but detail update failed: {uerr}", warn=True)
+        _done(f"Suspect #{sid} added.")
 
 
 @st.dialog("Add Witness")
@@ -254,8 +253,7 @@ def dialog_add_witness(case_id):
         if err:
             st.error(err)
         else:
-            st.success(f"Witness #{data['witness_id']} added.")
-            st.rerun()
+            _done(f"Witness #{data['witness_id']} added.")
 
 
 @st.dialog("Add Victim")
@@ -270,16 +268,15 @@ def dialog_add_victim(case_id):
         if err:
             st.error(err)
         else:
-            st.success(f"Victim #{data['victim_id']} added.")
-            st.rerun()
+            _done(f"Victim #{data['victim_id']} added.")
 
 
 @st.dialog("Record Testimony")
 def dialog_record_testimony(case_id, witnesses, suspects):
-    w_opts = {c.person_name(w.get("person")): w.get("witness_id") for w in witnesses}
+    w_opts = _label_options(witnesses, "witness_id")
     wname = st.selectbox("Witness", list(w_opts.keys()))
     text = st.text_area("Testimony *", max_chars=255)
-    s_opts = {c.person_name(s.get("person")): s.get("suspect_id") for s in suspects}
+    s_opts = _label_options(suspects, "suspect_id")
     pointed = st.multiselect("Points to suspects", list(s_opts.keys()))
     if st.button("Record", type="primary", disabled=not (wname and text)):
         payload = {"testimony_text": text,
@@ -288,8 +285,7 @@ def dialog_record_testimony(case_id, witnesses, suspects):
         if err:
             st.error(err)
         else:
-            st.success("Testimony recorded.")
-            st.rerun()
+            _done("Testimony recorded.")
 
 
 @st.dialog("Add Trial")
@@ -304,8 +300,7 @@ def dialog_add_trial(case_id):
         if err:
             st.error(err)
         else:
-            st.success(f"Trial #{data['trial_id']} created.")
-            st.rerun()
+            _done(f"Trial #{data['trial_id']} created.")
 
 
 @st.dialog("Add Hearing")
@@ -318,14 +313,13 @@ def dialog_add_hearing(case_id, trial_id):
         if err:
             st.error(err)
         else:
-            st.success("Hearing recorded.")
-            st.rerun()
+            _done("Hearing recorded.")
 
 
 @st.dialog("Apply Punishment")
 def dialog_apply_punishment(case_id, trial_id, suspects):
     st.caption("Note: each person must already have a Criminal profile, or the API returns 400.")
-    s_opts = {c.person_name(s.get("person")): s.get("suspect_id") for s in suspects}
+    s_opts = _label_options(suspects, "suspect_id")
     chosen = st.multiselect("Persons *", list(s_opts.keys()))
     fine = st.number_input("Fine (₹)", min_value=0, value=0)
     col1, col2 = st.columns(2)
@@ -345,8 +339,7 @@ def dialog_apply_punishment(case_id, trial_id, suspects):
         if err:
             st.error(err)
         else:
-            st.success("Punishment applied.")
-            st.rerun()
+            _done("Punishment applied.")
 
 
 @st.dialog("Assign Officer")
@@ -357,11 +350,9 @@ def dialog_assign_officer(case_id):
         if err:
             st.error(err)
         else:
-            st.success(f"Officer {oid} assigned.")
-            st.rerun()
+            _done(f"Officer {oid} assigned.")
 
 
-# ── Edit dialogs ──────────────────────────────────────────────────────────────
 @st.dialog("Edit Case")
 def dialog_edit_case(case_obj):
     case_id = case_obj.get("case_id")
@@ -372,13 +363,14 @@ def dialog_edit_case(case_obj):
     status = st.selectbox("Status", _statuses,
                           index=_statuses.index(_cur) if _cur in _statuses else 0)
     if st.button("Save", type="primary"):
-        payload = {"summary": summary or None, "crime_type": crime_type or None, "status": status}
+        payload = {"summary": summary or None, "crime_type": crime_type or None}
+        if status != _cur:
+            payload["status"] = status
         _, err = api_patch(f"/cases/{case_id}", payload)
         if err:
             st.error(err)
         else:
-            st.success("Case updated.")
-            st.rerun()
+            _done("Case updated.")
 
 
 @st.dialog("Close Case")
@@ -389,8 +381,7 @@ def dialog_close_case(case_id):
         if err:
             st.error(err)
         else:
-            st.success("Case closed.")
-            st.rerun()
+            _done("Case closed.")
 
 
 @st.dialog("Update Suspect")
@@ -408,8 +399,7 @@ def dialog_update_suspect(case_id, suspect):
         if err:
             st.error(err)
         else:
-            st.success("Suspect updated.")
-            st.rerun()
+            _done("Suspect updated.")
 
 
 @st.dialog("Edit Person")
@@ -429,5 +419,4 @@ def dialog_edit_person(person):
         if err:
             st.error(err)
         else:
-            st.success("Person updated.")
-            st.rerun()
+            _done("Person updated.")

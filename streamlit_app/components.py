@@ -1,9 +1,7 @@
-"""Pure formatting + payload-builder helpers. No streamlit, no network."""
 from datetime import datetime
 
 
 def iso(d):
-    """date/datetime -> ISO string; passthrough str; None -> None."""
     if d is None:
         return None
     return d.isoformat() if hasattr(d, "isoformat") else str(d)

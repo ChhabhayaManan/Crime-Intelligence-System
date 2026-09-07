@@ -1,49 +1,34 @@
-"""
-App/API/__init__.py
--------------------
-Builds the v1 APIRouter that includes every domain sub-router.
+from fastapi import APIRouter, Depends
 
-All domain routers (persons, cases, evidence, witnesses, suspects,
-victims, trials) enforce auth + RBAC at router level.
-
-The system router (auth + analytics) is included without global
-dependencies so that /auth/register and /auth/login stay public.
-The analytics endpoints inside system_router protect themselves.
-"""
-
-from fastapi import APIRouter
-
+from App.CRUD.auth import get_current_user
 from App.API.Routing import (
-    addresses_router,
-    cases_router,
-    evidence_router,
-    persons_router,
-    suspects_router,
-    system_router,
-    trials_router,
-    victims_router,
-    witnesses_router,
+    addresses,
+    cases,
+    evidence,
+    persons,
+    suspects,
+    system,
+    trials,
+    victims,
+    witnesses,
+)
+
+_PROTECTED = (
+    addresses,
+    persons,
+    cases,
+    evidence,
+    witnesses,
+    suspects,
+    victims,
+    trials,
+    system,
 )
 
 api_router = APIRouter()
+api_router.include_router(system.auth_router)
 
-# People 
-api_router.include_router(addresses_router)
-api_router.include_router(persons_router)
-
-# Case lifecycle 
-api_router.include_router(cases_router)
-
-# Case-scoped entities 
-api_router.include_router(evidence_router)
-api_router.include_router(witnesses_router)
-api_router.include_router(suspects_router)
-api_router.include_router(victims_router)
-api_router.include_router(trials_router)
-
-# Auth + Analytics -- no global dependency here.
-# /auth/login and /auth/register stay public.
-# Analytics & change-password protect themselves via their own Depends().
-api_router.include_router(system_router)
-
-__all__ = ["api_router"]
+for _module in _PROTECTED:
+    api_router.include_router(
+        _module.router, dependencies=[Depends(get_current_user)]
+    )

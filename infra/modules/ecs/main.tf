@@ -7,7 +7,7 @@ resource "aws_ecs_cluster" "this" {
 
   setting {
     name  = "containerInsights"
-    value = "disabled" # cost control; flip to enabled for metrics
+    value = "disabled"
   }
 
   tags = {
@@ -15,8 +15,6 @@ resource "aws_ecs_cluster" "this" {
   }
 }
 
-# Container logs. Name must match the iam module's log_group_name so the
-# execution role's scoped logs permission lines up.
 resource "aws_cloudwatch_log_group" "app" {
   name              = var.log_group_name
   retention_in_days = var.log_retention_days
@@ -26,9 +24,6 @@ resource "aws_cloudwatch_log_group" "app" {
   }
 }
 
-# --- ECS task security group ---
-# Created with no inline rules; all rules are standalone so cross-module
-# rules (ALB, RDS) can live here without conflict.
 resource "aws_security_group" "task" {
   name        = "${var.project_name}-ecs-sg"
   description = "ECS Fargate tasks"
@@ -39,7 +34,6 @@ resource "aws_security_group" "task" {
   }
 }
 
-# App traffic: ALB -> task on the container port.
 resource "aws_security_group_rule" "task_ingress_from_alb" {
   type                     = "ingress"
   from_port                = var.container_port
@@ -50,11 +44,6 @@ resource "aws_security_group_rule" "task_ingress_from_alb" {
   description              = "App port from ALB only"
 }
 
-# NOTE: ALB -> task egress lives inline on the ALB SG in the vpc module. The
-# ALB SG uses inline rules, so a standalone egress rule here would conflict
-# (the AWS provider forbids mixing inline + standalone rules on one SG).
-
-# DB traffic: task -> RDS on the DB port.
 resource "aws_security_group_rule" "task_egress_to_rds" {
   type                     = "egress"
   from_port                = var.db_port
@@ -75,10 +64,6 @@ resource "aws_security_group_rule" "rds_ingress_from_task" {
   description              = "RDS from ECS tasks only"
 }
 
-# NOTE: task egress :443 (to the interface-endpoint SG and the S3 prefix list)
-# lives in the endpoints module, since both ends are created there.
-
-# --- Task definition ---
 resource "aws_ecs_task_definition" "app" {
   family                   = "${local.name}-app"
   requires_compatibilities = ["FARGATE"]
@@ -101,8 +86,6 @@ resource "aws_ecs_task_definition" "app" {
         }
       ]
 
-      # Plain (non-secret) RDS DNS. DATABASE_URL secret still wins in the app;
-      # these expose writer/reader hosts for read-split wiring later.
       environment = [
         {
           name  = "DB_HOST"
@@ -149,9 +132,6 @@ resource "aws_ecs_task_definition" "app" {
   }
 }
 
-# --- Service ---
-# Fargate auto-balances tasks across the supplied private subnets (one per
-# AZ), so desired_count = 2 lands one task in each AZ.
 resource "aws_ecs_service" "app" {
   name            = "${local.name}-service"
   cluster         = aws_ecs_cluster.this.id
@@ -171,12 +151,8 @@ resource "aws_ecs_service" "app" {
     container_port   = var.container_port
   }
 
-  # Give the container time to boot before the ALB starts failing it.
   health_check_grace_period_seconds = 60
 
-  # CI (deploy.yml) registers new task-def revisions and rolls the service on
-  # every app deploy. Terraform only knows the revision it created, so without
-  # this it would revert the service to an older task def on the next apply.
   lifecycle {
     ignore_changes = [task_definition]
   }

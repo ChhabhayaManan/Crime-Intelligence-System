@@ -6,12 +6,10 @@ variable "vpc_id" {
   type = string
 }
 
-# Dedicated data-tier subnets (one per AZ) for 3-tier isolation.
 variable "subnet_ids" {
   type = list(string)
 }
 
-# AZ names; [0] = primary (AZ-a), [1] = read replica (AZ-b).
 variable "availability_zones" {
   type = list(string)
 }
@@ -51,9 +49,6 @@ variable "engine_version" {
   default = "16"
 }
 
-# Days of automated backups. 1 = minimum that keeps backups on (free tier:
-# backup storage up to the DB size is free). 0 would disable backups AND break
-# the read replica (the source needs backups enabled).
 variable "backup_retention_period" {
   type    = number
   default = 1

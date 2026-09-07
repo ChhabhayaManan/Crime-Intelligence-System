@@ -1,3 +1,4 @@
+# variables that will be used in the main.tf file
 variable "region" {
   default = "ap-south-1"
 }
@@ -10,27 +11,32 @@ variable "vpc_cidr" {
   default = "23.44.0.0/16"
 }
 
-# RDS master password. No default — set in gitignored terraform.tfvars.
 variable "db_password" {
   type      = string
   sensitive = true
 }
 
-# Evidence S3 bucket name. Must be globally unique; suffix if taken.
-# Shared by the s3 (creates it), iam (builds its ARN), and ecs (env var) modules.
 variable "evidence_bucket_name" {
   type    = string
   default = "crime-is-evidence"
 }
 
-# Container image tag deployed by ECS (CI overrides with the git SHA).
 variable "image_tag" {
   type    = string
   default = "latest"
 }
 
-# Frontend (Streamlit) container image tag (CI overrides with the git SHA).
 variable "frontend_image_tag" {
   type    = string
   default = "latest"
+}
+
+variable "k6_image_tag" {
+  type    = string
+  default = "latest"
+}
+
+variable "force_destroy" {
+  type    = bool
+  default = false
 }

@@ -1,49 +1,31 @@
-"""
-system.py
----------
-FastAPI router for Analytics and Authentication endpoints.
-
-Analytics
----------
-  GET  /analytics/hotspots          - crime hotspot aggregation
-
-Auth
-----
-  POST /auth/register               - register new user (returns UserOut)
-  POST /auth/login                  - login, returns JWT token
-  POST /auth/change-password        - change password (requires valid JWT)
-"""
-
-from fastapi import APIRouter, Depends, HTTPException, Query, status
 from datetime import date
 
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
 from App.API.deps import get_db
-from App.CRUD.auth import get_current_active_user
-from App.db.models import AppUser
-from App.schema.case import (
-    CrimeHotspotQuery,
-    CrimeHotspotResponse,
-)
+from App.schema.case import CrimeHotspotQuery, CrimeHotspotResponse
 from App.schema.core import (
     ChangePasswordRequest,
     TokenOut,
+    TokenRefreshOut,
+    TokenRefreshRequest,
     UserLoginRequest,
     UserOut,
     UserRegisterRequest,
 )
 from App.CRUD.analytics import get_crime_hotspots
 from App.CRUD.auth import (
+    CurrentUser,
     change_password,
+    get_current_user,
     login_user,
+    refresh_access_token,
     register_user,
 )
 
-router = APIRouter(tags=["system"])
+router = APIRouter(tags=["analytics"])
+auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
-
-# ---------------------------------------------------------------------------
-# Analytics
-# ---------------------------------------------------------------------------
 
 @router.get("/analytics/hotspots", response_model=CrimeHotspotResponse)
 def crime_hotspots_endpoint(
@@ -52,72 +34,36 @@ def crime_hotspots_endpoint(
     to_date: date | None = Query(default=None, alias="to"),
     db=Depends(get_db),
 ):
-    """Aggregate case counts by city and return locations sorted by crime frequency."""
-    try:
-        query = CrimeHotspotQuery(city=city, from_date=from_date, to_date=to_date)
-        return get_crime_hotspots(db, query)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    query = CrimeHotspotQuery(city=city, from_date=from_date, to_date=to_date)
+    return get_crime_hotspots(db, query)
 
 
-# ---------------------------------------------------------------------------
-# Auth - Register
-# ---------------------------------------------------------------------------
-
-@router.post("/auth/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+@auth_router.post(
+    "/register", response_model=UserOut, status_code=status.HTTP_201_CREATED
+)
 def register_endpoint(payload: UserRegisterRequest, db=Depends(get_db)):
-    """Register a new user. Role defaults to 'viewer' and cannot be set via API."""
-    try:
-        user = register_user(db, payload)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-
-    return UserOut(
-        user_id=user.user_id,
-        username=user.username,
-        email=user.email,
-        mobile_number=getattr(user, "mobile_number", None),
-        role=user.role,
-        is_active=user.is_active,
-    )
+    return UserOut.model_validate(register_user(db, payload))
 
 
-# ---------------------------------------------------------------------------
-# Auth - Login
-# ---------------------------------------------------------------------------
-
-@router.post("/auth/login", response_model=TokenOut, status_code=status.HTTP_200_OK)
+@auth_router.post("/login", response_model=TokenOut)
 def login_endpoint(payload: UserLoginRequest, db=Depends(get_db)):
-    """Validate credentials and return a signed JWT access token."""
-    try:
-        return login_user(db, payload)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(exc),
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    return login_user(db, payload)
 
 
-# ---------------------------------------------------------------------------
-# Auth - Change Password (requires login)
-# ---------------------------------------------------------------------------
+@auth_router.post("/refresh", response_model=TokenRefreshOut)
+def refresh_endpoint(payload: TokenRefreshRequest, db=Depends(get_db)):
+    return refresh_access_token(db, payload.refresh_token)
 
-@router.post("/auth/change-password", response_model=UserOut, status_code=status.HTTP_200_OK)
+
+@auth_router.post("/change-password", response_model=UserOut)
 def change_password_endpoint(
     payload: ChangePasswordRequest,
     db=Depends(get_db),
-    current_user: AppUser = Depends(get_current_active_user),
+    current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Change the password for the authenticated user."""
     if current_user.username != payload.username:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only change your own password.",
         )
-    try:
-        return change_password(db, payload)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
-
-
+    return change_password(db, payload)

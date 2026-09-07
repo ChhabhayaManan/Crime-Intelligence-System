@@ -3,7 +3,8 @@ locals {
 }
 
 resource "aws_s3_bucket" "evidence" {
-  bucket = var.bucket_name
+  bucket        = var.bucket_name
+  force_destroy = var.force_destroy
 
   tags = {
     Name    = var.bucket_name
@@ -11,7 +12,6 @@ resource "aws_s3_bucket" "evidence" {
   }
 }
 
-# Block every form of public access.
 resource "aws_s3_bucket_public_access_block" "evidence" {
   bucket                  = aws_s3_bucket.evidence.id
   block_public_acls       = true
@@ -20,7 +20,6 @@ resource "aws_s3_bucket_public_access_block" "evidence" {
   restrict_public_buckets = true
 }
 
-# Keep prior object versions (evidence integrity / accidental-overwrite recovery).
 resource "aws_s3_bucket_versioning" "evidence" {
   bucket = aws_s3_bucket.evidence.id
 
@@ -29,8 +28,6 @@ resource "aws_s3_bucket_versioning" "evidence" {
   }
 }
 
-# Default SSE-S3 (AES256, free) so objects are encrypted even if a client
-# omits the encryption header.
 resource "aws_s3_bucket_server_side_encryption_configuration" "evidence" {
   bucket = aws_s3_bucket.evidence.id
 
@@ -41,9 +38,6 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "evidence" {
   }
 }
 
-# Bucket policy: force TLS, and allow object access only to the ECS task role.
-# Public access is already killed by the access block above; this is the
-# "only the task role" half (defense in depth alongside the role's own policy).
 data "aws_iam_policy_document" "evidence" {
   statement {
     sid    = "DenyInsecureTransport"
@@ -77,7 +71,6 @@ data "aws_iam_policy_document" "evidence" {
     resources = ["${aws_s3_bucket.evidence.arn}/*"]
   }
 
-  # Bucket-level: HeadBucket / list for the readiness check.
   statement {
     sid    = "AllowTaskRoleBucketList"
     effect = "Allow"
@@ -96,6 +89,5 @@ resource "aws_s3_bucket_policy" "evidence" {
   bucket = aws_s3_bucket.evidence.id
   policy = data.aws_iam_policy_document.evidence.json
 
-  # Don't let the policy apply race ahead of the public-access block.
   depends_on = [aws_s3_bucket_public_access_block.evidence]
 }

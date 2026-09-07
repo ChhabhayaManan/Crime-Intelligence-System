@@ -1,16 +1,3 @@
-"""
-evidence.py
------------
-FastAPI router for Evidence CRUD endpoints (case-scoped).
-
-Endpoints
----------
-  POST   /cases/{case_id}/evidence              – add_case_evidence
-  GET    /cases/{case_id}/evidence              – list_case_evidence
-  GET    /evidence/{evidence_id}                – get_evidence
-  PATCH  /evidence/{evidence_id}                – update_evidence
-"""
-
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -21,8 +8,10 @@ from App.schema.case import (
     CaseEvidenceCreateRequest,
     CaseEvidenceCreateResponse,
     CaseEvidenceListResponse,
+    CaseEvidenceUpdateRequest,
     EvidenceRead,
 )
+from App.CRUD.common import not_found
 from App.CRUD.evidence import (
     add_case_evidence,
     attach_evidence_file,
@@ -31,10 +20,10 @@ from App.CRUD.evidence import (
     update_evidence,
     upload_evidence_file,
 )
+
 router = APIRouter(tags=["evidence"])
 
-# Allowed upload types: extension -> permitted content-types.
-_MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 _ALLOWED_TYPES: dict[str, set[str]] = {
     "pdf": {"application/pdf"},
     "txt": {"text/plain"},
@@ -51,11 +40,7 @@ def add_evidence_endpoint(
     open_date: date | None = Query(default=None),
     db=Depends(get_db),
 ):
-    """Add a new evidence item to a case and link it via CollectedFor."""
-    try:
-        return add_case_evidence(db, case_id, payload, open_date)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    return add_case_evidence(db, case_id, payload, open_date)
 
 
 @router.get("/cases/{case_id}/evidence", response_model=CaseEvidenceListResponse)
@@ -64,20 +49,12 @@ def list_evidence_endpoint(
     open_date: date | None = Query(default=None),
     db=Depends(get_db),
 ):
-    """List all evidence items collected for a case."""
-    try:
-        return list_case_evidence(db, case_id, open_date)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    return list_case_evidence(db, case_id, open_date)
 
 
 @router.get("/evidence/{evidence_id}", response_model=EvidenceRead)
 def get_evidence_endpoint(evidence_id: int, db=Depends(get_db)):
-    """Fetch a single evidence item by its ID."""
-    try:
-        return get_evidence(db, evidence_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    return get_evidence(db, evidence_id)
 
 
 @router.post("/evidence/{evidence_id}/file", response_model=EvidenceRead)
@@ -86,10 +63,8 @@ def upload_evidence_file_endpoint(
     file: UploadFile = File(...),
     db=Depends(get_db),
 ):
-    """Attach a file to an evidence row, storing the object in S3 (AES256)."""
-    ev = db.get(Evidence, evidence_id)
-    if ev is None:
-        raise HTTPException(status_code=404, detail=f"Evidence {evidence_id} not found.")
+    if db.get(Evidence, evidence_id) is None:
+        not_found("Evidence", evidence_id)
 
     filename = file.filename or ""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -102,34 +77,18 @@ def upload_evidence_file_endpoint(
             detail="Unsupported file type. Allowed: pdf, txt, jpg, jpeg, png.",
         )
 
-    # Read one byte past the limit so we can detect oversize without buffering more.
     content = file.file.read(_MAX_UPLOAD_BYTES + 1)
     if len(content) > _MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="File exceeds the 10 MB limit.")
 
     key = upload_evidence_file(content, evidence_id, content_type, ext)
-    try:
-        return attach_evidence_file(db, evidence_id, key, content_type, len(content))
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    return attach_evidence_file(db, evidence_id, key, content_type, len(content))
 
 
 @router.patch("/evidence/{evidence_id}", response_model=EvidenceRead)
 def update_evidence_endpoint(
     evidence_id: int,
-    description: str | None = None,
-    location_id: int | None = None,
-    collected_at: date | None = None,
+    payload: CaseEvidenceUpdateRequest,
     db=Depends(get_db),
 ):
-    """Partially update an evidence record (description, location, collection date)."""
-    try:
-        return update_evidence(
-            db,
-            evidence_id,
-            description=description,
-            location_id=location_id,
-            collected_at=collected_at,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    return update_evidence(db, evidence_id, payload)

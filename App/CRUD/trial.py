@@ -1,29 +1,21 @@
 """
-trial.py
---------
-CRUD operations for Trials, Hearings, and Punishments.
-
-Functions
----------
-  add_case_trial        – POST /cases/{case_id}/trials
-  list_case_trials      – GET  /cases/{case_id}/trials
-  add_trial_hearing     – POST /trials/{trial_id}/hearing
-  get_trial_detail      – GET  /trials/{trial_id}
-  apply_trial_punishment– POST /trials/{trial_id}/punishment
-  assign_judge_to_trial [service] – set judge on a trial (no direct HTTP route)
+Functions for trial and punishment CRUD operations in the Crime Intelligence System.
+- trial_read: Converts a Trial to a TrialRead.
+- _derive_punishment_type: Derives a punishment type label from a Punishment row.
+- _punishment_read: Converts a Punishment to a PunishmentRead.
+- add_case_trial: Creates a new trial for a case.
+- list_case_trials: Lists all trials of a case.
+- add_trial_hearing: Records a hearing, opening a new trial row if one is already set.
+- get_trial_detail: Fetches a trial with its punishments.
+- apply_trial_punishment: Creates or updates punishments for the given persons on a trial.
 """
-
 from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from App.db.models import (
-    Criminal,
-    Punishment,
-    Trial,
-)
+from App.db.models import CaseDetail, Criminal, Punishment, Trial
 from App.schema.case import (
     CaseTrialListResponse,
     PunishmentRead,
@@ -36,22 +28,14 @@ from App.schema.case import (
     TrialPunishmentCreateResponse,
     TrialRead,
 )
-from App.CRUD.common import (
-    next_trial_number,
-    fetch_case,
-    fetch_trial,
-)
+from App.CRUD.common import fetch_case, fetch_trial, next_trial_number
 
-# ---------------------------------------------------------------------------
-# Internal mapper
-# ---------------------------------------------------------------------------
 
 def trial_read(trial: Trial) -> TrialRead:
     return TrialRead(
         case_id=trial.case_id,
         open_date=trial.open_date,
         trial_number=trial.trial_number,
-        trial_id=trial.trial_number,
         hearing_date=trial.hearing,
         judge_id=trial.judge_id,
         court_level=trial.court_level,
@@ -81,17 +65,12 @@ def _punishment_read(p: Punishment) -> PunishmentRead:
     )
 
 
-# ---------------------------------------------------------------------------
-# Public CRUD
-# ---------------------------------------------------------------------------
-
 def add_case_trial(
     db: Session,
     case_id: int,
     payload: TrialCreateRequest,
     open_date: date | None = None,
 ) -> TrialCreateResponse:
-    """Create a new trial for a case."""
     case = fetch_case(db, case_id, open_date)
 
     trial_num = next_trial_number(db, case.case_id, case.open_date)
@@ -104,8 +83,7 @@ def add_case_trial(
         court_level=payload.court_level,
     )
     db.add(trial)
-    db.commit()
-    db.refresh(trial)
+    db.flush()
 
     return TrialCreateResponse(trial_id=trial_num, trial=trial_read(trial))
 
@@ -115,8 +93,7 @@ def list_case_trials(
     case_id: int,
     open_date: date | None = None,
 ) -> CaseTrialListResponse:
-    """Return all trials for a case."""
-    case = fetch_case(db, case_id, open_date)
+    case = fetch_case(db, case_id, open_date, selectinload(CaseDetail.trials))
 
     return CaseTrialListResponse(
         case_id=case.case_id,
@@ -130,11 +107,9 @@ def add_trial_hearing(
     trial_id: int,
     payload: TrialHearingCreateRequest,
 ) -> TrialHearingCreateResponse:
-    """Record a hearing on a trial. If the trial already has a hearing date set, creates a new trial row for this hearing."""
     existing = fetch_trial(db, case_id, trial_id)
 
     if existing.hearing is not None:
-        # Trial already has a hearing — create next trial for this hearing
         trial_num = next_trial_number(db, existing.case_id, existing.open_date)
         trial = Trial(
             case_id=existing.case_id,
@@ -151,12 +126,10 @@ def add_trial_hearing(
 
     if payload.hearing_date is not None:
         trial.hearing = payload.hearing_date
-
     if payload.outcome is not None:
         trial.court_level = payload.outcome[:50]
 
-    db.commit()
-    db.refresh(trial)
+    db.flush()
 
     return TrialHearingCreateResponse(trial_id=trial_num, trial=trial_read(trial))
 
@@ -165,9 +138,9 @@ def get_trial_detail(
     db: Session,
     case_id: int,
     trial_id: int,
+    open_date: date | None = None,
 ) -> TrialDetailResponse:
-    """Fetch a trial along with all its punishment records."""
-    trial = fetch_trial(db, case_id, trial_id)
+    trial = fetch_trial(db, case_id, trial_id, open_date)
 
     punishments = (
         db.query(Punishment)
@@ -190,21 +163,17 @@ def apply_trial_punishment(
     trial_id: int,
     payload: TrialPunishmentCreateRequest,
 ) -> TrialPunishmentCreateResponse:
-    """Assign punishment to one or more criminals. Creates Criminal profile and upserts Punishment row per person."""
     trial = fetch_trial(db, case_id, trial_id)
 
-    punishments_created: list[PunishmentRead] = []
+    given = payload.model_dump(exclude_unset=True)
+    punishments: list[PunishmentRead] = []
 
     for person_id in payload.person_ids:
-        # Ensure Criminal profile
-        criminal = db.get(Criminal, person_id)
-        if criminal is None:
-            criminal = Criminal(criminal_person_id=person_id)
-            db.add(criminal)
+        if db.get(Criminal, person_id) is None:
+            db.add(Criminal(criminal_person_id=person_id))
             db.flush()
 
-        # Upsert Punishment
-        p = (
+        punishment = (
             db.query(Punishment)
             .filter(
                 Punishment.criminal_person_id == person_id,
@@ -213,25 +182,27 @@ def apply_trial_punishment(
             )
             .first()
         )
-        if p is None:
-            p = Punishment(
+        if punishment is None:
+            punishment = Punishment(
                 criminal_person_id=person_id,
                 case_id=trial.case_id,
                 open_date=trial.open_date,
             )
-            db.add(p)
+            db.add(punishment)
 
-        p.fine = payload.fine
-        p.jail_start_date = payload.jail_start
-        p.jail_end_date = payload.jail_end
-        p.death_penalty = payload.death_penalty
+        if "fine" in given:
+            punishment.fine = payload.fine
+        if "jail_start" in given:
+            punishment.jail_start_date = payload.jail_start
+        if "jail_end" in given:
+            punishment.jail_end_date = payload.jail_end
+        if "death_penalty" in given:
+            punishment.death_penalty = payload.death_penalty
 
         db.flush()
-        punishments_created.append(_punishment_read(p))
-
-    db.commit()
+        punishments.append(_punishment_read(punishment))
 
     return TrialPunishmentCreateResponse(
         trial_id=trial_id,
-        punishments=punishments_created,
+        punishments=punishments,
     )

@@ -6,25 +6,19 @@ from utils import setup_sidebar, api_post
 
 st.set_page_config(page_title="CIS — Crime Intelligence System", page_icon="🔷", layout="wide")
 
-if "jwt" not in st.session_state:
-    st.session_state.jwt = None
-if "username_display" not in st.session_state:
-    st.session_state.username_display = ""
-
 setup_sidebar()
 
 st.markdown("## 🔷 CIS — Crime Intelligence System")
 st.caption("RESTRICTED ACCESS — Authorised personnel only.")
 
-if st.session_state.jwt:
+if st.session_state.access:
     st.success(f"Authenticated as **{st.session_state.username_display}**. Use the sidebar to navigate.")
     st.stop()
 
 tab_login, tab_register = st.tabs(["Sign In", "Create Account"])
 
-# ── Login ──
 with tab_login:
-    col1, col2 = st.columns([1, 1])
+    col1, _ = st.columns([1, 1])
     with col1:
         username = st.text_input("Username / Service No.", key="login_user")
         password = st.text_input("Password", type="password", key="login_pass")
@@ -37,14 +31,14 @@ with tab_login:
                 if err:
                     st.error(err)
                 else:
-                    st.session_state.jwt = data.get("access_token")
+                    st.session_state.access = data.get("access_token")
+                    st.session_state.refresh = data.get("refresh_token")
                     st.session_state.username_display = username
                     st.success("Authenticated. Navigate using the sidebar.")
                     st.rerun()
 
-# ── Register ──
 with tab_register:
-    col1, col2 = st.columns([1, 1])
+    col1, _ = st.columns([1, 1])
     with col1:
         r_user    = st.text_input("Username", key="reg_user", help="Min 3 characters")
         r_email   = st.text_input("Email", key="reg_email")
@@ -71,5 +65,3 @@ with tab_register:
                     st.error(err)
                 else:
                     st.success(f"Account created for **{r_user}**. Switch to Sign In tab.")
-    with col2:
-        st.info("New accounts are created as **viewer** role. An admin can upgrade your role directly in the database.")

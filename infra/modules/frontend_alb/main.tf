@@ -2,8 +2,6 @@ locals {
   name = lower(var.project_name)
 }
 
-# Internet-facing frontend ALB security group.
-# Inline rules keep this SG self-contained, avoiding cross-SG cycles.
 resource "aws_security_group" "frontend_alb" {
   name        = "${var.project_name}-frontend-alb-sg"
   description = "Internet-facing frontend ALB for Streamlit"
@@ -17,7 +15,6 @@ resource "aws_security_group" "frontend_alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Listener is HTTP-only for now, but allow 443 ingress for future HTTPS.
   ingress {
     description = "HTTPS from anywhere (future)"
     from_port   = 443
@@ -39,8 +36,6 @@ resource "aws_security_group" "frontend_alb" {
   }
 }
 
-# Target group: Fargate uses awsvpc networking, so targets are IPs.
-# Health check is the Streamlit health endpoint.
 resource "aws_lb_target_group" "app" {
   name                 = "${local.name}-frontend-tg"
   port                 = var.container_port
@@ -77,8 +72,6 @@ resource "aws_lb" "this" {
   }
 }
 
-# HTTP :80 -> forward to target group.
-// TODO: add ACM cert + :443 listener + HTTP->HTTPS redirect if this ever goes public.
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.this.arn
   port              = 80

@@ -15,8 +15,10 @@ provider "aws" {
 locals {
   container_image          = "${module.ecr.repository_url}:${var.image_tag}"
   frontend_container_image = "${module.ecr_frontend.repository_url}:${var.frontend_image_tag}"
+  k6_container_image       = "${module.ecr_k6.repository_url}:${var.k6_image_tag}"
 }
 
+# implement the modules for VPC, ECR, RDS, IAM, S3, ALB, ECS, and Endpoints
 module "vpc" {
   source       = "./modules/vpc"
   project_name = var.project_name
@@ -32,6 +34,12 @@ module "ecr_frontend" {
   source       = "./modules/ecr"
   project_name = var.project_name
   repo_name    = "cis-frontend-image"
+}
+
+module "ecr_k6" {
+  source       = "./modules/ecr"
+  project_name = var.project_name
+  repo_name    = "cis-k6"
 }
 
 module "rds" {
@@ -54,6 +62,7 @@ module "iam" {
   project_name                = var.project_name
   ecr_repository_arn          = module.ecr.repository_arn
   frontend_ecr_repository_arn = module.ecr_frontend.repository_arn
+  k6_ecr_repository_arn       = module.ecr_k6.repository_arn
   secret_arns                 = [module.secrets.database_url_secret_arn, module.secrets.jwt_secret_arn]
   evidence_bucket_name        = var.evidence_bucket_name
 }
@@ -63,10 +72,9 @@ module "s3" {
   project_name  = var.project_name
   bucket_name   = var.evidence_bucket_name
   task_role_arn = module.iam.ecs_task_role_arn
+  force_destroy = var.force_destroy
 }
 
-# Backend ALB — now INTERNAL, in the app private subnets. Reachable only from
-# the frontend ECS tasks (ingress rule hoisted to root below).
 module "alb" {
   source       = "./modules/alb"
   project_name = var.project_name
@@ -75,7 +83,6 @@ module "alb" {
   subnet_ids   = module.vpc.app_subnet_ids
 }
 
-# Frontend ALB — internet-facing, in the public subnets, fronts Streamlit.
 module "frontend_alb" {
   source            = "./modules/frontend_alb"
   project_name      = var.project_name
@@ -102,7 +109,6 @@ module "ecs" {
   db_reader_host          = coalesce(module.rds.reader_address, module.rds.writer_address)
   evidence_bucket_name    = var.evidence_bucket_name
 
-  # Service create needs the listener attached to the LB first.
   depends_on = [module.alb]
 }
 
@@ -116,8 +122,6 @@ module "endpoints" {
   ecs_security_group_id   = module.ecs.task_security_group_id
 }
 
-# Frontend ECS tier (Streamlit) behind the internet-facing frontend ALB. Calls
-# the backend over the internal ALB via api_base_url (server-side, in-VPC).
 module "frontend" {
   source                        = "./modules/frontend"
   project_name                  = var.project_name
@@ -133,14 +137,22 @@ module "frontend" {
   endpoints_security_group_id   = module.endpoints.endpoints_security_group_id
   s3_prefix_list_id             = module.endpoints.s3_prefix_list_id
 
-  # Service create needs the frontend ALB listener attached first.
   depends_on = [module.frontend_alb]
 }
 
-# --- Cross-module SG rules hoisted to root to break module dependency cycles ---
-# (alb/endpoints would otherwise depend on frontend, which depends on them.)
+module "k6_runner" {
+  source                        = "./modules/k6_runner"
+  project_name                  = var.project_name
+  region                        = var.region
+  vpc_id                        = module.vpc.vpc_id
+  private_subnet_ids            = module.vpc.app_subnet_ids
+  execution_role_arn            = module.iam.ecs_task_execution_role_arn
+  container_image               = local.k6_container_image
+  backend_alb_security_group_id = module.alb.backend_alb_sg_id
+  endpoints_security_group_id   = module.endpoints.endpoints_security_group_id
+  s3_prefix_list_id             = module.endpoints.s3_prefix_list_id
+}
 
-# Frontend ECS -> internal backend ALB (HTTP API on :80).
 resource "aws_security_group_rule" "backend_alb_ingress_frontend" {
   type                     = "ingress"
   from_port                = 80
@@ -151,7 +163,6 @@ resource "aws_security_group_rule" "backend_alb_ingress_frontend" {
   description              = "Internal backend ALB from frontend ECS only"
 }
 
-# Frontend ECS -> VPC interface endpoints (ECR pull + log shipping on :443).
 resource "aws_security_group_rule" "endpoints_ingress_frontend" {
   type                     = "ingress"
   from_port                = 443
@@ -160,4 +171,24 @@ resource "aws_security_group_rule" "endpoints_ingress_frontend" {
   security_group_id        = module.endpoints.endpoints_security_group_id
   source_security_group_id = module.frontend.frontend_ecs_sg_id
   description              = "HTTPS from frontend ECS tasks"
+}
+
+resource "aws_security_group_rule" "backend_alb_ingress_k6" {
+  type                     = "ingress"
+  from_port                = 80
+  to_port                  = 80
+  protocol                 = "tcp"
+  security_group_id        = module.alb.backend_alb_sg_id
+  source_security_group_id = module.k6_runner.task_security_group_id
+  description              = "Internal backend ALB from k6 load-test runner only"
+}
+
+resource "aws_security_group_rule" "endpoints_ingress_k6" {
+  type                     = "ingress"
+  from_port                = 443
+  to_port                  = 443
+  protocol                 = "tcp"
+  security_group_id        = module.endpoints.endpoints_security_group_id
+  source_security_group_id = module.k6_runner.task_security_group_id
+  description              = "HTTPS from k6 load-test runner"
 }

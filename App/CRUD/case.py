@@ -1,34 +1,27 @@
 """
-case.py
--------
-CRUD operations for Case lifecycle.
-
-Functions
----------
-  open_case        – POST /cases
-  get_case         – GET  /cases/{case_id}
-  update_case      – PATCH /cases/{case_id}
-  close_case       – PATCH /cases/{case_id}/close
-  list_cases       – GET  /cases
-  get_case_details – GET  /cases/{case_id}/details  (combined)
+Functions for case CRUD operations in the Crime Intelligence System.
+- _case_to_read: Converts a CaseDetail to a CaseRead with reporter and location.
+- open_case: Creates a case and optionally assigns its first officer.
+- get_case: Fetches one case by id and optional open_date.
+- update_case: Applies partial updates to an open case.
+- close_case: Marks a case closed and sets its end date.
+- list_cases: Lists cases with filtering, sorting and pagination.
+- get_case_details: Fetches a case with the selected related collections.
 """
-
 from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
+
 from App.db.models import (
     Address,
     AffectedBy,
     CaseDetail,
     CollectedFor,
-    Evidence,
     InvolvedIn,
     Suspect,
     TestifiesIn,
-    Victim,
-    Witness,
 )
 from App.schema.case import (
     CaseCloseRequest,
@@ -43,40 +36,37 @@ from App.schema.case import (
     CaseRead,
     CaseStatus,
     CaseUpdateRequest,
-    EvidenceRead,
-    SuspectRead,
-    SuspectStatus,
-    TestimonyRead,
-    VictimRead,
-    WitnessRead,
 )
 from App.schema.core import AddressRead, PageMeta
 from App.CRUD.common import (
     assign_officer_to_case,
     build_person_summary,
-    next_id,
-    not_found,
-    paginate,
     fetch_case,
+    paginate,
 )
+from App.CRUD.evidence import ev_read
+from App.CRUD.suspect import suspect_read
 from App.CRUD.trial import trial_read
+from App.CRUD.victim import victim_read
+from App.CRUD.witness import testimony_read, witness_read
 
-# ---------------------------------------------------------------------------
-# Internal mappers
-# ---------------------------------------------------------------------------
+_CASE_READ_LOADS = (
+    joinedload(CaseDetail.crime_location_address),
+    joinedload(CaseDetail.reporting_person),
+    selectinload(CaseDetail.assigned_to_entries),
+)
+
+_SORT_MAP = {
+    "open_date": CaseDetail.open_date.asc(),
+    "-open_date": CaseDetail.open_date.desc(),
+    "crime_date": CaseDetail.crime_date.asc(),
+    "-crime_date": CaseDetail.crime_date.desc(),
+    "status": CaseDetail.case_status.asc(),
+    "-status": CaseDetail.case_status.desc(),
+}
+
 
 def _case_to_read(case: CaseDetail) -> CaseRead:
-    officer_ids = [a.officer_person_id for a in case.assigned_to_entries]
-    reporter = (
-        build_person_summary(case.reporting_person)
-        if case.reporting_person
-        else None
-    )
-    location = (
-        AddressRead.model_validate(case.crime_location_address)
-        if case.crime_location_address
-        else None
-    )
     return CaseRead(
         case_id=case.case_id,
         open_date=case.open_date,
@@ -87,85 +77,23 @@ def _case_to_read(case: CaseDetail) -> CaseRead:
         location_id=case.crime_location,
         status=CaseStatus(case.case_status) if case.case_status else None,
         reported_by=case.person_id,
-        reporter=reporter,
-        location=location,
-        assigned_officer_ids=officer_ids,
+        reporter=(
+            build_person_summary(case.reporting_person)
+            if case.reporting_person
+            else None
+        ),
+        location=(
+            AddressRead.model_validate(case.crime_location_address)
+            if case.crime_location_address
+            else None
+        ),
+        assigned_officer_ids=[a.officer_person_id for a in case.assigned_to_entries],
     )
 
-
-def _evidence_row(cf: CollectedFor) -> EvidenceRead:
-    ev: Evidence = cf.evidence
-    return EvidenceRead(
-        evidence_id=ev.evidence_id,
-        case_id=cf.case_id,
-        open_date=cf.open_date,
-        description=ev.description,
-        collection_date=ev.collection_date,
-        location_id=ev.location_id,
-    )
-
-
-def _suspect_row(inv: InvolvedIn) -> SuspectRead:
-    s: Suspect = inv.suspect
-    linked_ev = [lt.evidence_id for lt in s.linked_evidence]
-    person = build_person_summary(s.person) if s.person else None
-    return SuspectRead(
-        suspect_id=s.suspect_person_id,
-        person=person,
-        physical_description=s.physical_description,
-        family_contact=s.family_contact,
-        arrest_status=SuspectStatus(s.arrest_status) if s.arrest_status else None,
-        linked_evidence_ids=linked_ev,
-    )
-
-
-def _victim_row(ab: AffectedBy) -> VictimRead:
-    v: Victim = ab.victim
-    person = build_person_summary(v.person) if v.person else None
-    return VictimRead(
-        victim_id=v.victim_person_id,
-        person=person,
-        harm_details=v.harm_details,
-        family_contact=v.family_contact,
-    )
-
-
-def _witness_row(ti: TestifiesIn) -> WitnessRead:
-    w: Witness = ti.witness
-    person = build_person_summary(w.person) if w.person else None
-    return WitnessRead(
-        witness_id=w.witness_person_id,
-        person=person,
-        family_contact=w.family_contact,
-        statement=w.testimony,
-    )
-
-
-def _testimony_rows(case: CaseDetail) -> list[TestimonyRead]:
-    return [
-        TestimonyRead(
-            testimony_id=ti.witness_person_id,
-            witness_id=ti.witness_person_id,
-            case_id=ti.case_id,
-            testimony_text=ti.witness.testimony or "",
-            pointed_suspects=[pt.suspect_person_id for pt in ti.pointed_to_entries],
-        )
-        for ti in case.testifies_in_entries
-    ]
-
-
-# ---------------------------------------------------------------------------
-# Public CRUD functions
-# ---------------------------------------------------------------------------
 
 def open_case(db: Session, payload: CaseOpenRequest) -> CaseOpenResponse:
-    """Create a new CaseDetail row and optionally assign an initial officer."""
-    open_date = payload.open_date or date.today()
-    new_id = next_id(db, CaseDetail, "case_id")
-
     case = CaseDetail(
-        case_id=new_id,
-        open_date=open_date,
+        open_date=payload.open_date or date.today(),
         crime_date=payload.occurred_at,
         complaint_detail=payload.summary,
         crime_type=payload.crime_type,
@@ -177,9 +105,10 @@ def open_case(db: Session, payload: CaseOpenRequest) -> CaseOpenResponse:
     db.flush()
 
     if payload.initial_officer_id:
-        assign_officer_to_case(db, new_id, payload.initial_officer_id, open_date)
+        assign_officer_to_case(
+            db, case.case_id, payload.initial_officer_id, case.open_date
+        )
 
-    db.commit()
     return CaseOpenResponse(
         case_id=case.case_id,
         open_date=case.open_date,
@@ -193,9 +122,7 @@ def get_case(
     case_id: int,
     open_date: date | None = None,
 ) -> CaseRead:
-    """Fetch a single case's read representation."""
-    case = fetch_case(db, case_id, open_date)
-    return _case_to_read(case)
+    return _case_to_read(fetch_case(db, case_id, open_date, *_CASE_READ_LOADS))
 
 
 def update_case(
@@ -204,35 +131,39 @@ def update_case(
     payload: CaseUpdateRequest,
     open_date: date | None = None,
 ) -> CaseRead:
-    """Partially update a case record."""
-    case = fetch_case(db, case_id, open_date)
+    case = fetch_case(db, case_id, open_date, *_CASE_READ_LOADS)
+
+    if case.case_status == CaseStatus.CLOSED.value:
+        raise ValueError("Cannot update a closed case. Use the /close endpoint.")
+
+    given = payload.model_dump(exclude_unset=True)
 
     if payload.status is not None:
-        if case.case_status == CaseStatus.CLOSED.value:
-            raise ValueError("Cannot update a closed case. Use the /close endpoint.")
-        if payload.status == CaseStatus.CLOSED and payload.end_date is None and case.end_date is None:
+        if (
+            payload.status == CaseStatus.CLOSED
+            and payload.end_date is None
+            and case.end_date is None
+        ):
             case.end_date = date.today()
-
-    if payload.summary is not None:
-        case.complaint_detail = payload.summary
-    if payload.crime_type is not None:
-        case.crime_type = payload.crime_type
-    if payload.location_id is not None:
-        case.crime_location = payload.location_id
-    if payload.reported_by is not None:
-        case.person_id = payload.reported_by
-    if payload.occurred_at is not None:
-        case.crime_date = payload.occurred_at
-    if payload.status is not None:
         case.case_status = payload.status.value
-    if payload.end_date is not None:
+
+    if "summary" in given:
+        case.complaint_detail = payload.summary
+    if "crime_type" in given:
+        case.crime_type = payload.crime_type
+    if "location_id" in given:
+        case.crime_location = payload.location_id
+    if "reported_by" in given:
+        case.person_id = payload.reported_by
+    if "occurred_at" in given:
+        case.crime_date = payload.occurred_at
+    if "end_date" in given:
         case.end_date = payload.end_date
 
     if payload.assigned_officer_id is not None:
         assign_officer_to_case(db, case_id, payload.assigned_officer_id, case.open_date)
 
-    db.commit()
-    db.refresh(case)
+    db.flush()
     return _case_to_read(case)
 
 
@@ -242,13 +173,11 @@ def close_case(
     payload: CaseCloseRequest,
     open_date: date | None = None,
 ) -> CaseCloseResponse:
-    """Close a case by setting status to CLOSED and recording end_date."""
-    case = fetch_case(db, case_id, open_date)
+    case = fetch_case(db, case_id, open_date, *_CASE_READ_LOADS)
     case.case_status = CaseStatus.CLOSED.value
     case.end_date = payload.closed_at or date.today()
 
-    db.commit()
-    db.refresh(case)
+    db.flush()
     return CaseCloseResponse(
         case_id=case.case_id,
         open_date=case.open_date,
@@ -258,33 +187,22 @@ def close_case(
 
 
 def list_cases(db: Session, query: CaseListQuery) -> CaseListResponse:
-    """Return a filtered, sorted, paginated list of cases."""
-    q = db.query(CaseDetail)
+    q = db.query(CaseDetail).options(joinedload(CaseDetail.crime_location_address))
 
     if query.crime_type:
         q = q.filter(CaseDetail.crime_type.ilike(f"%{query.crime_type}%"))
     if query.status:
         q = q.filter(CaseDetail.case_status == query.status.value)
-
     if query.from_date:
-        q = q.filter(CaseDetail.crime_date >= query.from_date)
+        q = q.filter(CaseDetail.open_date >= query.from_date)
     if query.to_date:
-        q = q.filter(CaseDetail.crime_date <= query.to_date)
-
+        q = q.filter(CaseDetail.open_date <= query.to_date)
     if query.city:
-        q = q.join(Address, Address.address_id == CaseDetail.crime_location)
-        q = q.filter(Address.city.ilike(f"%{query.city}%"))
+        q = q.join(Address, Address.address_id == CaseDetail.crime_location).filter(
+            Address.city.ilike(f"%{query.city}%")
+        )
 
-    # Sorting
-    sort_map = {
-        "open_date": CaseDetail.open_date.asc(),
-        "-open_date": CaseDetail.open_date.desc(),
-        "crime_date": CaseDetail.crime_date.asc(),
-        "-crime_date": CaseDetail.crime_date.desc(),
-        "status": CaseDetail.case_status.asc(),
-        "-status": CaseDetail.case_status.desc(),
-    }
-    q = q.order_by(sort_map.get(query.sort.value, CaseDetail.open_date.desc()))
+    q = q.order_by(_SORT_MAP.get(query.sort.value, CaseDetail.open_date.desc()))
 
     items, total = paginate(q, query.page, query.page_size)
 
@@ -296,7 +214,9 @@ def list_cases(db: Session, query: CaseListQuery) -> CaseListResponse:
                 crime_date=c.crime_date,
                 crime_type=c.crime_type,
                 status=CaseStatus(c.case_status) if c.case_status else None,
-                city=c.crime_location_address.city if c.crime_location_address else None,
+                city=(
+                    c.crime_location_address.city if c.crime_location_address else None
+                ),
             )
             for c in items
         ],
@@ -310,48 +230,58 @@ def get_case_details(
     include: list[CaseInclude] | None = None,
     open_date: date | None = None,
 ) -> CaseDetailResponse:
-    """Return a case with all related sub-entities (filtered by include list if provided)."""
-    case = fetch_case(db, case_id, open_date)
-    include_set = set(include) if include else set(CaseInclude)
-
-    evidence = (
-        [_evidence_row(cf) for cf in case.collected_for_entries]
-        if CaseInclude.EVIDENCE in include_set
-        else []
+    case = fetch_case(
+        db,
+        case_id,
+        open_date,
+        *_CASE_READ_LOADS,
+        selectinload(CaseDetail.collected_for_entries).joinedload(CollectedFor.evidence),
+        selectinload(CaseDetail.trials),
+        selectinload(CaseDetail.testifies_in_entries).joinedload(TestifiesIn.witness),
+        selectinload(CaseDetail.testifies_in_entries).selectinload(
+            TestifiesIn.pointed_to_entries
+        ),
+        selectinload(CaseDetail.involved_in_entries)
+        .joinedload(InvolvedIn.suspect)
+        .selectinload(Suspect.linked_evidence),
+        selectinload(CaseDetail.affected_by_entries).joinedload(AffectedBy.victim),
     )
-    witnesses = (
-        [_witness_row(ti) for ti in case.testifies_in_entries]
-        if CaseInclude.WITNESSES in include_set
-        else []
-    )
-    suspects = (
-        [_suspect_row(inv) for inv in case.involved_in_entries]
-        if CaseInclude.SUSPECTS in include_set
-        else []
-    )
-    victims = (
-        [_victim_row(ab) for ab in case.affected_by_entries]
-        if CaseInclude.VICTIMS in include_set
-        else []
-    )
-    trials = (
-        [trial_read(t) for t in case.trials]
-        if CaseInclude.TRIALS in include_set
-        else []
-    )
-    testimonies = (
-        _testimony_rows(case)
-        if CaseInclude.TESTIMONIES in include_set
-        else []
-    )
+    included = set(include) if include else set(CaseInclude)
 
     return CaseDetailResponse(
         case=_case_to_read(case),
-        included=list(include_set),
-        evidence=evidence,
-        witnesses=witnesses,
-        suspects=suspects,
-        victims=victims,
-        trials=trials,
-        testimonies=testimonies,
+        included=list(included),
+        evidence=(
+            [
+                ev_read(cf.evidence, cf.case_id, cf.open_date)
+                for cf in case.collected_for_entries
+            ]
+            if CaseInclude.EVIDENCE in included
+            else []
+        ),
+        witnesses=(
+            [witness_read(e.witness) for e in case.testifies_in_entries if e.witness]
+            if CaseInclude.WITNESSES in included
+            else []
+        ),
+        suspects=(
+            [suspect_read(e.suspect) for e in case.involved_in_entries if e.suspect]
+            if CaseInclude.SUSPECTS in included
+            else []
+        ),
+        victims=(
+            [victim_read(e.victim) for e in case.affected_by_entries if e.victim]
+            if CaseInclude.VICTIMS in included
+            else []
+        ),
+        trials=(
+            [trial_read(t) for t in case.trials]
+            if CaseInclude.TRIALS in included
+            else []
+        ),
+        testimonies=(
+            [testimony_read(e) for e in case.testifies_in_entries]
+            if CaseInclude.TESTIMONIES in included
+            else []
+        ),
     )

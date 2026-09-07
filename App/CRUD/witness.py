@@ -1,60 +1,53 @@
 """
-witness.py
-----------
-CRUD operations for Witnesses and Testimonies.
-
-Functions
----------
-  add_case_witness      – POST /cases/{case_id}/witnesses
-  list_case_witnesses   – GET  /cases/{case_id}/witnesses
-  record_testimony      – POST /cases/{case_id}/witnesses/{witness_id}/testimony
-  list_case_testimonies – GET  /cases/{case_id}/testimonies
+Functions for case witness and testimony CRUD operations in the Crime Intelligence System.
+- witness_read: Converts a Witness to a WitnessRead with person summary.
+- testimony_read: Converts a TestifiesIn row to a TestimonyRead.
+- add_case_witness: Links a person to a case as a witness.
+- list_case_witnesses: Lists all witnesses testifying in a case.
+- record_testimony: Stores a witness's testimony for a case and links the suspects they pointed to.
+- list_case_testimonies: Lists every testimony recorded for a case.
 """
-
 from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from App.db.models import (
-    Person,
-    PointedTo,
-    Suspect,
-    TestifiesIn,
-    Witness,
-)
+from App.db.models import CaseDetail, PointedTo, Suspect, TestifiesIn, Witness
 from App.schema.case import (
     CaseWitnessCreateRequest,
     CaseWitnessCreateResponse,
     CaseWitnessListResponse,
     TestimonyRead,
-    WitnessRead,
     WitnessTestimonyCreateRequest,
+    WitnessRead,
 )
 from App.CRUD.common import (
     build_person_summary,
-    not_found,
     fetch_case,
+    get_or_create_link,
 )
+from App.CRUD.person import resolve_person
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
 
-def _witness_read(w: Witness) -> WitnessRead:
-    person = build_person_summary(w.person) if w.person else None
+def witness_read(witness: Witness) -> WitnessRead:
     return WitnessRead(
-        witness_id=w.witness_person_id,
-        person=person,
-        family_contact=w.family_contact,
-        statement=w.testimony,
+        witness_id=witness.witness_person_id,
+        person=build_person_summary(witness.person) if witness.person else None,
+        family_contact=witness.family_contact,
+        statement=witness.testimony,
     )
 
 
-# ---------------------------------------------------------------------------
-# Public CRUD
-# ---------------------------------------------------------------------------
+def testimony_read(entry: TestifiesIn) -> TestimonyRead:
+    return TestimonyRead(
+        testimony_id=entry.witness_person_id,
+        witness_id=entry.witness_person_id,
+        case_id=entry.case_id,
+        testimony_text=entry.testimony or "",
+        pointed_suspects=[pt.suspect_person_id for pt in entry.pointed_to_entries],
+    )
+
 
 def add_case_witness(
     db: Session,
@@ -62,22 +55,9 @@ def add_case_witness(
     payload: CaseWitnessCreateRequest,
     open_date: date | None = None,
 ) -> CaseWitnessCreateResponse:
-    """Add a witness to a case (by existing person_id or inline PersonCreate). Creates Witness profile and TestifiesIn link."""
     case = fetch_case(db, case_id, open_date)
+    person_id = resolve_person(db, payload)
 
-    # Resolve the person
-    if payload.person_id is not None:
-        person = db.get(Person, payload.person_id)
-        if person is None:
-            not_found("Person", payload.person_id)
-    else:
-        from App.CRUD.person import create_person
-        result = create_person(db, payload.person)  # type: ignore[arg-type]
-        person = db.get(Person, result.person_id)
-
-    person_id: int = person.person_id  # type: ignore[union-attr]
-
-    # Ensure Witness profile exists
     witness = db.get(Witness, person_id)
     if witness is None:
         witness = Witness(
@@ -93,29 +73,19 @@ def add_case_witness(
         if payload.statement:
             witness.testimony = payload.statement
 
-    # Ensure TestifiesIn link
-    ti = (
-        db.query(TestifiesIn)
-        .filter(
-            TestifiesIn.case_id == case.case_id,
-            TestifiesIn.open_date == case.open_date,
-            TestifiesIn.witness_person_id == person_id,
-        )
-        .first()
+    get_or_create_link(
+        db,
+        TestifiesIn,
+        case_id=case.case_id,
+        open_date=case.open_date,
+        witness_person_id=person_id,
     )
-    if ti is None:
-        ti = TestifiesIn(
-            case_id=case.case_id,
-            open_date=case.open_date,
-            witness_person_id=person_id,
-        )
-        db.add(ti)
+    db.flush()
 
-    db.commit()
-    db.refresh(witness)
-
-    wr = _witness_read(witness)
-    return CaseWitnessCreateResponse(witness_id=person_id, witness=wr)
+    return CaseWitnessCreateResponse(
+        witness_id=person_id,
+        witness=witness_read(witness),
+    )
 
 
 def list_case_witnesses(
@@ -123,18 +93,21 @@ def list_case_witnesses(
     case_id: int,
     open_date: date | None = None,
 ) -> CaseWitnessListResponse:
-    """Return all witnesses in a case."""
-    case = fetch_case(db, case_id, open_date)
+    case = fetch_case(
+        db,
+        case_id,
+        open_date,
+        selectinload(CaseDetail.testifies_in_entries).joinedload(TestifiesIn.witness),
+    )
 
-    witnesses = [
-        _witness_read(ti.witness)
-        for ti in case.testifies_in_entries
-        if ti.witness
-    ]
     return CaseWitnessListResponse(
         case_id=case.case_id,
         open_date=case.open_date,
-        items=witnesses,
+        items=[
+            witness_read(entry.witness)
+            for entry in case.testifies_in_entries
+            if entry.witness
+        ],
     )
 
 
@@ -145,16 +118,12 @@ def record_testimony(
     payload: WitnessTestimonyCreateRequest,
     open_date: date | None = None,
 ) -> TestimonyRead:
-    """Set witness testimony text and link named suspects via PointedTo rows."""
     case = fetch_case(db, case_id, open_date)
 
-    witness = db.get(Witness, witness_id)
-    if witness is None:
-        raise ValueError(
-            f"Person {witness_id} is not registered as a witness."
-        )
+    if db.get(Witness, witness_id) is None:
+        raise ValueError(f"Person {witness_id} is not registered as a witness.")
 
-    ti = (
+    entry = (
         db.query(TestifiesIn)
         .filter(
             TestifiesIn.case_id == case.case_id,
@@ -163,51 +132,26 @@ def record_testimony(
         )
         .first()
     )
-    if ti is None:
-        raise ValueError(
-            f"Witness {witness_id} is not linked to case {case_id}."
-        )
+    if entry is None:
+        raise ValueError(f"Witness {witness_id} is not linked to case {case_id}.")
 
-    # Update testimony text
-    witness.testimony = payload.testimony_text
+    entry.testimony = payload.testimony_text
 
-    # Create PointedTo rows for each suspect
     for suspect_id in payload.pointed_suspects:
-        s = db.get(Suspect, suspect_id)
-        if s is None:
+        if db.get(Suspect, suspect_id) is None:
             raise ValueError(f"Person {suspect_id} is not registered as a suspect.")
-
-        existing_pt = (
-            db.query(PointedTo)
-            .filter(
-                PointedTo.case_id == case.case_id,
-                PointedTo.open_date == case.open_date,
-                PointedTo.witness_person_id == witness_id,
-                PointedTo.suspect_person_id == suspect_id,
-            )
-            .first()
+        get_or_create_link(
+            db,
+            PointedTo,
+            case_id=case.case_id,
+            open_date=case.open_date,
+            witness_person_id=witness_id,
+            suspect_person_id=suspect_id,
         )
-        if not existing_pt:
-            pt = PointedTo(
-                case_id=case.case_id,
-                open_date=case.open_date,
-                witness_person_id=witness_id,
-                suspect_person_id=suspect_id,
-            )
-            db.add(pt)
 
-    db.commit()
-    db.refresh(ti)
-
-    pointed = [pt.suspect_person_id for pt in ti.pointed_to_entries]
-
-    return TestimonyRead(
-        testimony_id=witness_id,
-        witness_id=witness_id,
-        case_id=case.case_id,
-        testimony_text=witness.testimony or "",
-        pointed_suspects=pointed,
-    )
+    db.flush()
+    db.refresh(entry)
+    return testimony_read(entry)
 
 
 def list_case_testimonies(
@@ -215,22 +159,12 @@ def list_case_testimonies(
     case_id: int,
     open_date: date | None = None,
 ) -> list[TestimonyRead]:
-    """Return all testimony records for a case."""
-    case = fetch_case(db, case_id, open_date)
-
-    result = []
-    for ti in case.testifies_in_entries:
-        w: Witness = ti.witness
-        if w is None:
-            continue
-        pointed = [pt.suspect_person_id for pt in ti.pointed_to_entries]
-        result.append(
-            TestimonyRead(
-                testimony_id=ti.witness_person_id,
-                witness_id=ti.witness_person_id,
-                case_id=ti.case_id,
-                testimony_text=w.testimony or "",
-                pointed_suspects=pointed,
-            )
-        )
-    return result
+    case = fetch_case(
+        db,
+        case_id,
+        open_date,
+        selectinload(CaseDetail.testifies_in_entries).selectinload(
+            TestifiesIn.pointed_to_entries
+        ),
+    )
+    return [testimony_read(entry) for entry in case.testifies_in_entries]

@@ -2,8 +2,6 @@ locals {
   name = lower(var.project_name)
 }
 
-# Target group: Fargate uses awsvpc networking, so targets are IPs.
-# Health check is the shallow /health liveness probe (no DB).
 resource "aws_lb_target_group" "app" {
   name                 = "${local.name}-tg"
   port                 = var.container_port
@@ -28,8 +26,6 @@ resource "aws_lb_target_group" "app" {
   }
 }
 
-# Internal backend ALB security group. Standalone rules (not inline) so the
-# frontend ECS SG can be referenced without creating a cross-SG cycle.
 resource "aws_security_group" "backend_alb" {
   name        = "${var.project_name}-backend-alb-sg"
   description = "Internal backend ALB; reachable only from frontend ECS"
@@ -39,10 +35,6 @@ resource "aws_security_group" "backend_alb" {
     Name = "${var.project_name}-backend-alb-sg"
   }
 }
-
-# NOTE: ingress on this SG from the frontend ECS SG is defined at the root
-# (aws_security_group_rule.backend_alb_ingress_frontend in infra/main.tf) to
-# avoid an alb<->frontend module dependency cycle.
 
 resource "aws_security_group_rule" "backend_alb_egress_tasks" {
   type              = "egress"
@@ -66,9 +58,6 @@ resource "aws_lb" "this" {
   }
 }
 
-# HTTP :80 -> forward to target group.
-# TODO: once an ACM cert exists, change this action to a 301 redirect to
-# HTTPS and add a :443 listener that forwards to the target group.
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.this.arn
   port              = 80

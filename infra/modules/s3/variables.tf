@@ -7,7 +7,11 @@ variable "bucket_name" {
   type        = string
 }
 
-# ECS task role ARN granted object access in the bucket policy.
 variable "task_role_arn" {
   type = string
+}
+
+variable "force_destroy" {
+  type    = bool
+  default = false
 }

@@ -71,7 +71,6 @@ variable "desired_count" {
   default = 2
 }
 
-# Smallest valid Fargate combo (0.25 vCPU / 0.5 GB).
 variable "cpu" {
   type    = number
   default = 256
