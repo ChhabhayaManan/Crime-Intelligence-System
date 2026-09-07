@@ -73,6 +73,11 @@ def pytest_configure(config):
 
     if not _reachable(base) and os.getenv("DATABASE_URL"):
         _server = _start_server(base)
+        if _server is None:
+            raise pytest.UsageError(
+                f"DATABASE_URL is set but no API came up on {base}, so the integration "
+                "tests would silently skip. Something else is probably holding that port."
+            )
 
 
 def pytest_unconfigure(config):
