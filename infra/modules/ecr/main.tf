@@ -16,7 +16,6 @@ resource "aws_ecr_repository" "app" {
   }
 }
 
-# Keep only the last 10 images; expire older untagged/tagged layers.
 resource "aws_ecr_lifecycle_policy" "app" {
   repository = aws_ecr_repository.app.name
 

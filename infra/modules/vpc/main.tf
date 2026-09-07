@@ -1,4 +1,3 @@
-# All AZs in the region; we use the first two.
 data "aws_availability_zones" "available" {
   state = "available"
 }
@@ -21,7 +20,6 @@ resource "aws_internet_gateway" "igw" {
   }
 }
 
-# --- AZ1 ---
 resource "aws_subnet" "public_az1" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = "23.44.9.0/24"
@@ -66,7 +64,6 @@ resource "aws_subnet" "data_az1" {
   }
 }
 
-# --- AZ2 ---
 resource "aws_subnet" "public_az2" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = "23.44.19.0/24"
@@ -111,12 +108,6 @@ resource "aws_subnet" "data_az2" {
   }
 }
 
-# ALB security group: public ingress on 80/443. Egress is restricted to the
-# app port within the VPC so the ALB can only reach the ECS tasks (least
-# privilege). Rules are inline here; do NOT attach standalone
-# aws_security_group_rule resources to this SG (the AWS provider forbids
-# mixing inline + standalone rules on one SG). Scoping egress to the VPC CIDR
-# instead of the task SG keeps this self-contained (no vpc<->ecs cycle).
 resource "aws_security_group" "alb" {
   name        = "${var.project_name}-alb-sg"
   description = "ALB ingress from internet on 80/443; egress to app port in-VPC"
@@ -151,9 +142,6 @@ resource "aws_security_group" "alb" {
   }
 }
 
-# --- Route tables ---
-# One shared public RT for both public subnets: default route to internet
-# via the IGW.
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
@@ -178,9 +166,6 @@ resource "aws_route_table_association" "public_az2" {
   route_table_id = aws_route_table.public.id
 }
 
-# One shared private RT for both private subnets: no internet route (no NAT).
-# Only the implicit local route + the S3 gateway-endpoint route, which the
-# endpoints module attaches via route_table_ids.
 resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
 
@@ -199,8 +184,6 @@ resource "aws_route_table_association" "private_az2" {
   route_table_id = aws_route_table.private.id
 }
 
-# Frontend + data tier subnets share the same private RT (no NAT, S3 gateway
-# route only) — identical to the app (private) subnets above.
 resource "aws_route_table_association" "frontend_az1" {
   subnet_id      = aws_subnet.frontend_az1.id
   route_table_id = aws_route_table.private.id

@@ -1,3 +1,4 @@
+# terraform backend configuration for storing the state file in an S3 bucket with encryption and locking enabled
 terraform {
   backend "s3" {
     bucket       = "crime-is-terraform-state"

@@ -1,369 +1,231 @@
 name: deploy
 
-# Build -> migrate -> deploy on push to main. OIDC -> least-privilege deploy role.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "Docs/**"
+      - "infra/**"
   workflow_dispatch:
 
 permissions:
-  id-token: write # required for OIDC role assumption
+  id-token: write
   contents: read
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
   DEPLOY_ROLE_ARN: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/Crime-IS-github-actions-deploy-role
-  ECR_REPOSITORY: cis-image
-  ECS_CLUSTER: crime-is-cluster
-  ECS_SERVICE: crime-is-service
-  ECS_TASK_FAMILY: crime-is-app
-  CONTAINER_NAME: app
-  ALB_NAME: crime-is-alb
-  BACKEND_TG_NAME: crime-is-tg
-  # Frontend (Streamlit) tier — independent of the backend jobs above.
-  FE_ECR_REPOSITORY: cis-frontend-image
-  FE_ECS_CLUSTER: crime-is-frontend-cluster
-  FE_ECS_SERVICE: crime-is-frontend-service
-  FE_ECS_TASK_FAMILY: crime-is-frontend-app
-  FE_CONTAINER_NAME: frontend
-  FE_ALB_NAME: crime-is-frontend-alb
+  IMAGE_TAG: git-${{ github.sha }}
 
 jobs:
-  build-push:
-    name: build-push
+  # test will be on the local setup, with pytest
+  test:
     runs-on: ubuntu-latest
-    outputs:
-      image: ${{ steps.build.outputs.image }}
-      image_tag: ${{ steps.vars.outputs.image_tag }}
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: crimedb
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/crimedb
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Image tag from git SHA
-        id: vars
-        run: echo "image_tag=git-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
 
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt -r streamlit_app/requirements.txt
+
+      - name: Create the schema
+        run: python -m App.db.setup_db
+
+      - name: Run the test suite
+        run: pytest -q
+
+      # for load testing
+      - name: Check the k6 scripts parse
+        run: |
+          for script in steady_state stress smoke_frontend; do
+            docker run --rm -v "$PWD/loadtest/k6:/scripts" grafana/k6:0.55.0 \
+              inspect "/scripts/${script}.js"
+          done
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      # build both backend and frontend images in parallel
+      matrix:
+        include:
+          - tier: backend
+            repository: cis-image
+            context: .
+          - tier: frontend
+            repository: cis-frontend-image
+            context: streamlit_app/
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Login to Amazon ECR
+      - uses: aws-actions/amazon-ecr-login@v2
         id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, tag, and push image
-        id: build
+      - name: Build and push ${{ matrix.tier }}
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
-          IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
         run: |
-          IMAGE="${REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
-          docker build -t "$IMAGE" -t "${REGISTRY}/${ECR_REPOSITORY}:latest" .
+          set -euo pipefail
+          IMAGE="${REGISTRY}/${{ matrix.repository }}:${IMAGE_TAG}"
+          docker build -t "$IMAGE" -t "${REGISTRY}/${{ matrix.repository }}:latest" "${{ matrix.context }}"
           docker push "$IMAGE"
-          docker push "${REGISTRY}/${ECR_REPOSITORY}:latest"
-          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
-
-  migrate:
-    name: migrate
-    needs: build-push
-    runs-on: ubuntu-latest
-    steps:
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Resolve network configuration
-        id: net
-        env:
-          OVERRIDE_SUBNETS: ${{ vars.PRIVATE_SUBNET_IDS }}
-          OVERRIDE_SG: ${{ vars.ECS_TASK_SG_ID }}
-        run: |
-          set -euo pipefail
-          if [ -n "${OVERRIDE_SUBNETS}" ]; then
-            SUBNETS="${OVERRIDE_SUBNETS}"
-          else
-            SUBNETS=$(aws ec2 describe-subnets \
-              --filters "Name=tag:Tier,Values=app" \
-              --query 'Subnets[].SubnetId' --output text | tr '\t' ',')
-          fi
-          if [ -n "${OVERRIDE_SG}" ]; then
-            SG="${OVERRIDE_SG}"
-          else
-            SG=$(aws ec2 describe-security-groups \
-              --filters "Name=tag:Name,Values=Crime-IS-ecs-sg" \
-              --query 'SecurityGroups[0].GroupId' --output text)
-          fi
-          if [ -z "${SUBNETS}" ] || [ "${SG}" = "None" ] || [ -z "${SG}" ]; then
-            echo "Failed to resolve subnets ('${SUBNETS}') or SG ('${SG}')" >&2
-            exit 1
-          fi
-          echo "subnets=${SUBNETS}" >> "$GITHUB_OUTPUT"
-          echo "sg=${SG}" >> "$GITHUB_OUTPUT"
-
-      - name: Run migration task
-        id: runtask
-        env:
-          IMAGE_TAG: ${{ needs.build-push.outputs.image_tag }}
-          SUBNETS: ${{ steps.net.outputs.subnets }}
-          SG: ${{ steps.net.outputs.sg }}
-        run: |
-          set -euo pipefail
-          OVERRIDES=$(cat <<JSON
-          {"containerOverrides":[{"name":"${CONTAINER_NAME}","command":["python","-m","App.db.setup_db"]}]}
-          JSON
-          )
-          NETCFG="awsvpcConfiguration={subnets=[${SUBNETS}],securityGroups=[${SG}],assignPublicIp=DISABLED}"
-          TASK_ARN=$(aws ecs run-task \
-            --cluster "${ECS_CLUSTER}" \
-            --task-definition "${ECS_TASK_FAMILY}" \
-            --launch-type FARGATE \
-            --network-configuration "${NETCFG}" \
-            --overrides "${OVERRIDES}" \
-            --query 'tasks[0].taskArn' --output text)
-          if [ -z "${TASK_ARN}" ] || [ "${TASK_ARN}" = "None" ]; then
-            echo "run-task did not return a task ARN" >&2
-            exit 1
-          fi
-          echo "task_arn=${TASK_ARN}" >> "$GITHUB_OUTPUT"
-
-      - name: Wait for migration to finish and check exit code
-        env:
-          TASK_ARN: ${{ steps.runtask.outputs.task_arn }}
-        run: |
-          set -euo pipefail
-          aws ecs wait tasks-stopped --cluster "${ECS_CLUSTER}" --tasks "${TASK_ARN}"
-          EXIT_CODE=$(aws ecs describe-tasks \
-            --cluster "${ECS_CLUSTER}" --tasks "${TASK_ARN}" \
-            --query "tasks[0].containers[?name=='${CONTAINER_NAME}'].exitCode | [0]" \
-            --output text)
-          REASON=$(aws ecs describe-tasks \
-            --cluster "${ECS_CLUSTER}" --tasks "${TASK_ARN}" \
-            --query 'tasks[0].stoppedReason' --output text)
-          echo "Migration container exit code: ${EXIT_CODE} (stoppedReason: ${REASON})"
-          if [ "${EXIT_CODE}" != "0" ]; then
-            echo "Migration failed (exit ${EXIT_CODE})" >&2
-            exit 1
-          fi
+          docker push "${REGISTRY}/${{ matrix.repository }}:latest"
 
   deploy:
-    name: deploy
-    needs: [build-push, migrate]
+    # deploy the backend and frontend in parallel
+    needs: build
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - tier: backend
+            repository: cis-image
+            family: crime-is-app
+            container: app
+            cluster: crime-is-cluster
+            service: crime-is-service
+            target_group: crime-is-tg
+          - tier: frontend
+            repository: cis-frontend-image
+            family: crime-is-frontend-app
+            container: frontend
+            cluster: crime-is-frontend-cluster
+            service: crime-is-frontend-service
+            alb: crime-is-frontend-alb
     steps:
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Render new task definition with the new image
-        id: taskdef
-        env:
-          IMAGE: ${{ needs.build-push.outputs.image }}
-        run: |
-          set -euo pipefail
-          aws ecs describe-task-definition \
-            --task-definition "${ECS_TASK_FAMILY}" \
-            --query 'taskDefinition' --output json > taskdef-current.json
-          jq --arg IMAGE "${IMAGE}" --arg NAME "${CONTAINER_NAME}" '
-            .containerDefinitions = (.containerDefinitions | map(
-              if .name == $NAME then .image = $IMAGE else . end
-            ))
-            | del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
-                  .compatibilities, .registeredAt, .registeredBy)
-          ' taskdef-current.json > taskdef-new.json
-          echo "taskdef=taskdef-new.json" >> "$GITHUB_OUTPUT"
-
-      - name: Register and deploy
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
-        with:
-          task-definition: ${{ steps.taskdef.outputs.taskdef }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          service: ${{ env.ECS_SERVICE }}
-          wait-for-service-stability: true
-
-  health-check:
-    name: health-check
-    needs: deploy
-    runs-on: ubuntu-latest
-    steps:
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Check backend target health
-        run: |
-          set -euo pipefail
-          # The backend ALB is internal (alb module: internal = true), so a
-          # public GitHub runner cannot HTTP-probe it. Instead verify health via
-          # the ELB API: poll the target group until every registered target is
-          # 'healthy'. The TG health check itself hits GET /health on each task,
-          # so 'healthy' already proves the app is serving.
-          TG_ARN=$(aws elbv2 describe-target-groups \
-            --names "${BACKEND_TG_NAME}" \
-            --query 'TargetGroups[0].TargetGroupArn' --output text)
-          if [ -z "${TG_ARN}" ] || [ "${TG_ARN}" = "None" ]; then
-            echo "Failed to resolve target group ARN for '${BACKEND_TG_NAME}'" >&2
-            exit 1
-          fi
-          echo "Polling target health for ${TG_ARN}"
-          for i in $(seq 1 10); do
-            STATES=$(aws elbv2 describe-target-health \
-              --target-group-arn "${TG_ARN}" \
-              --query 'TargetHealthDescriptions[].TargetHealth.State' \
-              --output text)
-            echo "Attempt ${i}/10: states=[${STATES:-<none>}]"
-            # Pass only when at least one target exists and none are unhealthy.
-            if [ -n "${STATES}" ]; then
-              UNHEALTHY=false
-              for s in ${STATES}; do
-                [ "${s}" = "healthy" ] || UNHEALTHY=true
-              done
-              if [ "${UNHEALTHY}" = "false" ]; then
-                echo "All targets healthy."
-                exit 0
-              fi
-            fi
-            sleep 15
-          done
-          echo "Targets not all healthy after retries (last states: [${STATES:-<none>}])" >&2
-          exit 1
-
-  # --- Frontend (Streamlit) tier ------------------------------------------
-  # Independent of the backend build-push/migrate/deploy jobs above so either
-  # tier can deploy on its own. No migrate step — frontend has no DB.
-  build-push-frontend:
-    name: build-push-frontend
-    runs-on: ubuntu-latest
-    outputs:
-      image: ${{ steps.build.outputs.image }}
-      image_tag: ${{ steps.vars.outputs.image_tag }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Image tag from git SHA
-        id: vars
-        run: echo "image_tag=git-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Login to Amazon ECR
+      - uses: aws-actions/amazon-ecr-login@v2
         id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, tag, and push frontend image
-        id: build
+      - name: Register a task definition using the new image
+        id: taskdef
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
-          IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
-        run: |
-          # Build context is streamlit_app/ (uses streamlit_app/Dockerfile).
-          IMAGE="${REGISTRY}/${FE_ECR_REPOSITORY}:${IMAGE_TAG}"
-          docker build -t "$IMAGE" -t "${REGISTRY}/${FE_ECR_REPOSITORY}:latest" streamlit_app/
-          docker push "$IMAGE"
-          docker push "${REGISTRY}/${FE_ECR_REPOSITORY}:latest"
-          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
-
-  deploy-frontend:
-    name: deploy-frontend
-    needs: build-push-frontend
-    runs-on: ubuntu-latest
-    steps:
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Render new frontend task definition with the new image
-        id: taskdef
-        env:
-          IMAGE: ${{ needs.build-push-frontend.outputs.image }}
+        # codde where we are registering new task definition with the new image, and saving the ARN of the new task definition to an output variable
         run: |
           set -euo pipefail
-          aws ecs describe-task-definition \
-            --task-definition "${FE_ECS_TASK_FAMILY}" \
-            --query 'taskDefinition' --output json > taskdef-frontend-current.json
-          jq --arg IMAGE "${IMAGE}" --arg NAME "${FE_CONTAINER_NAME}" '
-            .containerDefinitions = (.containerDefinitions | map(
-              if .name == $NAME then .image = $IMAGE else . end
-            ))
+          IMAGE="${REGISTRY}/${{ matrix.repository }}:${IMAGE_TAG}"
+          aws ecs describe-task-definition --task-definition "${{ matrix.family }}" \
+            --query 'taskDefinition' --output json > current.json
+          jq --arg IMAGE "$IMAGE" --arg NAME "${{ matrix.container }}" '
+            .containerDefinitions |= map(if .name == $NAME then .image = $IMAGE else . end)
             | del(.taskDefinitionArn, .revision, .status, .requiresAttributes,
                   .compatibilities, .registeredAt, .registeredBy)
-          ' taskdef-frontend-current.json > taskdef-frontend-new.json
-          echo "taskdef=taskdef-frontend-new.json" >> "$GITHUB_OUTPUT"
+          ' current.json > next.json
+          ARN=$(aws ecs register-task-definition --cli-input-json file://next.json \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "arn=${ARN}" >> "$GITHUB_OUTPUT"
 
-      - name: Register and deploy
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
-        with:
-          task-definition: ${{ steps.taskdef.outputs.taskdef }}
-          cluster: ${{ env.FE_ECS_CLUSTER }}
-          service: ${{ env.FE_ECS_SERVICE }}
-          wait-for-service-stability: true
-
-  health-check-frontend:
-    name: health-check-frontend
-    needs: deploy-frontend
-    runs-on: ubuntu-latest
-    steps:
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Resolve frontend base URL
-        id: url
+      - name: Migrate the database
+        if: matrix.tier == 'backend'
         env:
-          OVERRIDE_URL: ${{ vars.FRONTEND_BASE_URL }}
+          TASKDEF_ARN: ${{ steps.taskdef.outputs.arn }}
+          SUBNETS: ${{ vars.PRIVATE_SUBNET_IDS }}
+          SG: ${{ vars.ECS_TASK_SG_ID }}
+        # migration stemps -- set up the database schema by running a one-off ECS task with the new image, and wait for it to complete
         run: |
           set -euo pipefail
-          # Prefer an explicit repo var (e.g. once HTTPS/a domain exists); else
-          # discover the internet-facing frontend ALB DNS.
-          if [ -n "${OVERRIDE_URL}" ]; then
-            BASE="${OVERRIDE_URL%/}"
-          else
-            DNS=$(aws elbv2 describe-load-balancers \
-              --names "${FE_ALB_NAME}" \
-              --query 'LoadBalancers[0].DNSName' --output text)
-            if [ -z "${DNS}" ] || [ "${DNS}" = "None" ]; then
-              echo "Failed to resolve frontend ALB DNS for '${FE_ALB_NAME}'" >&2
-              exit 1
-            fi
-            BASE="http://${DNS}"
+          if [ -z "${SUBNETS}" ]; then
+            SUBNETS=$(aws ec2 describe-subnets --filters "Name=tag:Tier,Values=app" \
+              --query 'Subnets[].SubnetId' --output text | tr '\t' ',')
           fi
-          echo "base=${BASE}" >> "$GITHUB_OUTPUT"
+          if [ -z "${SG}" ]; then
+            SG=$(aws ec2 describe-security-groups --filters "Name=tag:Name,Values=Crime-IS-ecs-sg" \
+              --query 'SecurityGroups[0].GroupId' --output text)
+          fi
+          if [ -z "${SUBNETS}" ] || [ -z "${SG}" ] || [ "${SG}" = "None" ]; then
+            echo "could not resolve subnets ('${SUBNETS}') or security group ('${SG}')" >&2
+            exit 1
+          fi
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "${{ matrix.cluster }}" \
+            --task-definition "${TASKDEF_ARN}" \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[${SUBNETS}],securityGroups=[${SG}],assignPublicIp=DISABLED}" \
+            --overrides '{"containerOverrides":[{"name":"${{ matrix.container }}","command":["python","-m","App.db.setup_db"]}]}' \
+            --query 'tasks[0].taskArn' --output text)
+          aws ecs wait tasks-stopped --cluster "${{ matrix.cluster }}" --tasks "${TASK_ARN}"
+          EXIT_CODE=$(aws ecs describe-tasks --cluster "${{ matrix.cluster }}" --tasks "${TASK_ARN}" \
+            --query "tasks[0].containers[?name=='${{ matrix.container }}'].exitCode | [0]" --output text)
+          REASON=$(aws ecs describe-tasks --cluster "${{ matrix.cluster }}" --tasks "${TASK_ARN}" \
+            --query 'tasks[0].stoppedReason' --output text)
+          echo "migration exited ${EXIT_CODE} (${REASON})"
+          [ "${EXIT_CODE}" = "0" ]
 
-      - name: Check Streamlit health
-        env:
-          BASE: ${{ steps.url.outputs.base }}
+      - name: Roll the service
         run: |
           set -euo pipefail
-          # Streamlit's built-in health endpoint; 200 = serving.
-          URL="${BASE}/_stcore/health"
-          echo "Probing ${URL}"
-          CODE="000"
+          aws ecs update-service --cluster "${{ matrix.cluster }}" \
+            --service "${{ matrix.service }}" \
+            --task-definition "${{ steps.taskdef.outputs.arn }}" >/dev/null
+          aws ecs wait services-stable --cluster "${{ matrix.cluster }}" --services "${{ matrix.service }}"
+
+      - name: Check backend targets are healthy
+        if: matrix.tier == 'backend'
+        run: |
+          set -euo pipefail
+          TG_ARN=$(aws elbv2 describe-target-groups --names "${{ matrix.target_group }}" \
+            --query 'TargetGroups[0].TargetGroupArn' --output text)
           for i in $(seq 1 10); do
-            CODE=$(curl -sS -o /tmp/fe_body -w '%{http_code}' --max-time 10 "${URL}" || echo "000")
-            echo "Attempt ${i}/10: HTTP ${CODE}"
-            cat /tmp/fe_body 2>/dev/null || true
-            echo
-            if [ "${CODE}" = "200" ]; then
-              echo "Frontend health OK."
+            STATES=$(aws elbv2 describe-target-health --target-group-arn "${TG_ARN}" \
+              --query 'TargetHealthDescriptions[].TargetHealth.State' --output text)
+            echo "attempt ${i}/10: [${STATES:-none}]"
+            if [ -n "${STATES}" ] && ! echo "${STATES}" | grep -qv healthy; then
+              echo "all targets healthy"
               exit 0
             fi
             sleep 15
           done
-          echo "Frontend health check failed after retries (last HTTP ${CODE})" >&2
+          echo "targets never all became healthy" >&2
+          exit 1
+
+      - name: Check the frontend is serving
+        if: matrix.tier == 'frontend'
+        env:
+          OVERRIDE_URL: ${{ vars.FRONTEND_BASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -n "${OVERRIDE_URL}" ]; then
+            BASE="${OVERRIDE_URL%/}"
+          else
+            DNS=$(aws elbv2 describe-load-balancers --names "${{ matrix.alb }}" \
+              --query 'LoadBalancers[0].DNSName' --output text)
+            BASE="http://${DNS}"
+          fi
+          for i in $(seq 1 10); do
+            CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "${BASE}/_stcore/health" || echo 000)
+            echo "attempt ${i}/10: HTTP ${CODE}"
+            [ "${CODE}" = "200" ] && exit 0
+            sleep 15
+          done
+          echo "frontend never returned 200" >&2
           exit 1

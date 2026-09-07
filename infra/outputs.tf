@@ -1,3 +1,7 @@
+output "region" {
+  value = var.region
+}
+
 output "vpc_id" {
   value = module.vpc.vpc_id
 }
@@ -10,8 +14,8 @@ output "private_subnet_ids" {
   value = module.vpc.private_subnet_ids
 }
 
-output "alb_security_group_id" {
-  value = module.vpc.alb_security_group_id
+output "app_subnet_ids" {
+  value = module.vpc.app_subnet_ids
 }
 
 output "ecr_repository_url" {
@@ -46,18 +50,22 @@ output "github_oidc_provider_arn" {
   value = module.iam.github_oidc_provider_arn
 }
 
-# Backend ALB is now INTERNAL — this DNS resolves only inside the VPC and is
-# what the frontend tasks use as API_BASE_URL.
 output "alb_dns_name" {
   value = module.alb.dns_name
 }
 
-# Internet-facing frontend ALB — the public entrypoint (browser hits this).
+output "backend_alb_security_group_id" {
+  value = module.alb.backend_alb_sg_id
+}
+
+output "backend_target_group_arn" {
+  value = module.alb.target_group_arn
+}
+
 output "frontend_alb_dns_name" {
   value = module.frontend_alb.alb_dns_name
 }
 
-# Full public URL of the frontend (HTTP-only until ACM/:443 is added).
 output "frontend_alb_url" {
   value = "http://${module.frontend_alb.alb_dns_name}"
 }
@@ -88,4 +96,24 @@ output "evidence_bucket_arn" {
 
 output "evidence_bucket_name" {
   value = module.s3.bucket_name
+}
+
+output "k6_ecr_repository_url" {
+  value = module.ecr_k6.repository_url
+}
+
+output "k6_cluster_name" {
+  value = module.k6_runner.cluster_name
+}
+
+output "k6_task_definition_family" {
+  value = module.k6_runner.task_definition_family
+}
+
+output "k6_task_security_group_id" {
+  value = module.k6_runner.task_security_group_id
+}
+
+output "k6_log_group_name" {
+  value = module.k6_runner.log_group_name
 }
