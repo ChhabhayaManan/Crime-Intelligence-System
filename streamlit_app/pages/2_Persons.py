@@ -8,13 +8,30 @@ import theme
 import forms
 from utils import require_auth, api_get
 
+PAGE_SIZE = 50
+
+ROLE_ICON = {
+    "officer": "🔵", "suspect": "🔴", "witness": "🟡",
+    "victim": "🟠", "criminal": "⚫",
+}
+
+ROLE_FIELDS = [
+    ("officer", "Officer", [("Rank", "rank"), ("Department", "department")]),
+    ("suspect", "Suspect", [("Arrest Status", "arrest_status"),
+                            ("Physical Description", "physical_description"),
+                            ("Family Contact", "family_contact")]),
+    ("witness", "Witness", [("Testimony", "testimony"),
+                            ("Family Contact", "family_contact")]),
+    ("victim", "Victim", [("Harm Details", "harm_details"),
+                          ("Family Contact", "family_contact")]),
+    ("criminal", "Criminal", [("Family Contact", "c_family_contact")]),
+]
+
 st.set_page_config(page_title="Persons — CIS", layout="wide")
 require_auth()
 
-
-# ── List / Filters ────────────────────────────────────────────────────────────
 st.title("Persons Registry")
-top1, top2 = st.columns([4, 1])
+_, top2 = st.columns([4, 1])
 with top2:
     if st.button("➕ New person", use_container_width=True):
         forms.dialog_new_person()
@@ -25,7 +42,7 @@ with col1:
 with col2:
     role_filter = st.selectbox("Role", ["all", "officer", "suspect", "witness", "victim", "criminal"])
 
-params = {"page_size": 50}
+params = {"page_size": PAGE_SIZE}
 if search:
     params["query"] = search
 if role_filter != "all":
@@ -39,24 +56,22 @@ if err:
     st.stop()
 
 persons = raw.get("items", [])
+total = (raw.get("meta") or {}).get("total", len(persons))
 if not persons:
     st.info("No persons found.")
     st.stop()
-
-ROLE_ICON = {
-    "officer": "🔵", "suspect": "🔴", "witness": "🟡",
-    "victim": "🟠", "criminal": "⚫",
-}
 
 rows = [{
     "_person_id": p.get("person_id"),
     "Name": c.person_name(p),
     "Roles": " ".join(ROLE_ICON.get(r, "⚪") + " " + r for r in p.get("roles", [])) or "—",
-    "Address ID": p.get("address_id", "—"),
+    "Address ID": p.get("address_id") or "—",
 } for p in persons]
 
 df = pd.DataFrame(rows)
-st.caption(f"{len(df)} persons found")
+st.caption(f"{len(df)} of {total} persons")
+if total > len(df):
+    st.info(f"Showing the first {len(df)}. Narrow the search to see the rest.")
 
 selected = st.dataframe(
     df.drop(columns=["_person_id"]),
@@ -72,22 +87,19 @@ if not sel_rows:
 
 pid = df.iloc[sel_rows[0]]["_person_id"]
 
-# ── Person Detail ─────────────────────────────────────────────────────────────
 st.divider()
 
 with st.spinner("Loading profile..."):
-    p_data, p_err = api_get(f"/persons/{pid}")
-    cases_data, _ = api_get(f"/persons/{pid}/cases")
+    p, p_err = api_get(f"/persons/{pid}")
+    person_cases, cases_err = api_get(f"/persons/{pid}/cases")
 
 if p_err:
     st.error(p_err)
     st.stop()
 
-p    = p_data
 addr = p.get("address") or {}
-rd   = p.get("role_details") or {}
+rd = p.get("role_details") or {}
 
-# Header
 st.subheader(c.person_name(p))
 
 if st.button("✏️ Edit person"):
@@ -102,7 +114,7 @@ if meta_parts:
     st.markdown(" &nbsp;|&nbsp; ".join(meta_parts))
 
 addr_str = c.fmt_addr(addr)
-if addr_str and addr_str != "—":
+if addr_str != "—":
     st.markdown(f"📍 {addr_str}")
 
 roles = p.get("roles", [])
@@ -111,74 +123,35 @@ if roles:
 
 st.divider()
 
-# ── Tabs ──────────────────────────────────────────────────────────────────────
-role_records = []
-if rd.get("officer"):   role_records.append(("Officer",  rd["officer"]))
-if rd.get("suspect"):   role_records.append(("Suspect",  rd["suspect"]))
-if rd.get("witness"):   role_records.append(("Witness",  rd["witness"]))
-if rd.get("victim"):    role_records.append(("Victim",   rd["victim"]))
-if rd.get("criminal"):  role_records.append(("Criminal", rd["criminal"]))
+role_records = [(label, rd[key], fields) for key, label, fields in ROLE_FIELDS if rd.get(key)]
+person_cases = person_cases or []
 
-person_cases: list = []
-if cases_data is not None:
-    person_cases = cases_data if isinstance(cases_data, list) else cases_data.get("items", [])
+tabs = st.tabs([r[0] for r in role_records] + [f"Cases ({len(person_cases)})"])
 
-tab_labels = [r[0] for r in role_records] + [f"Cases ({len(person_cases)})"]
-tabs = st.tabs(tab_labels)
+for tab, (label, data, fields) in zip(tabs, role_records):
+    with tab:
+        shown = False
+        for title, field in fields:
+            value = data.get(field)
+            if not value:
+                continue
+            if field == "arrest_status":
+                value = f"{c.arrest_icon(value)} `{str(value).upper()}`"
+            st.markdown(f"**{title}:** {value}")
+            shown = True
+        if not shown:
+            st.caption(f"No {label.lower()} details on record.")
 
-for i, (label, data) in enumerate(role_records):
-    with tabs[i]:
-        if label == "Officer":
-            c1, c2 = st.columns(2)
-            c1.metric("Rank", data.get("rank") or "—")
-            c2.metric("Department", data.get("department") or "—")
-
-        elif label == "Suspect":
-            a_status = str(data.get("arrest_status") or "—").upper()
-            badge_icon = {"WANTED": "🔴", "ARRESTED": "🟠", "RELEASED": "🟢"}.get(a_status, "⚪")
-            st.markdown(f"**Arrest Status:** {badge_icon} `{a_status}`")
-            if data.get("physical_description"):
-                st.markdown(f"**Physical Description:** {data['physical_description']}")
-            if data.get("family_contact"):
-                st.markdown(f"**Family Contact:** {data['family_contact']}")
-
-        elif label == "Witness":
-            if data.get("testimony"):
-                st.markdown(f"**Testimony:** {data['testimony']}")
-            else:
-                st.caption("No testimony on record.")
-            if data.get("family_contact"):
-                st.markdown(f"**Family Contact:** {data['family_contact']}")
-
-        elif label == "Victim":
-            if data.get("harm_details"):
-                st.markdown(f"**Harm Details:** {data['harm_details']}")
-            else:
-                st.caption("No harm details on record.")
-            if data.get("family_contact"):
-                st.markdown(f"**Family Contact:** {data['family_contact']}")
-
-        elif label == "Criminal":
-            if data.get("c_family_contact"):
-                st.markdown(f"**Family Contact:** {data['c_family_contact']}")
-            else:
-                st.caption("No criminal profile details.")
-
-# Cases tab — uses /persons/{pid}/cases response:
-# { case_id, open_date, crime_type, status (raw), roles (list) }
 with tabs[-1]:
-    if cases_data is None:
-        st.warning("Cases endpoint unavailable.")
+    if cases_err:
+        st.warning(cases_err)
     elif not person_cases:
         st.info("No cases linked to this person.")
     else:
-        crows = []
-        for case in person_cases:
-            crows.append({
-                "Reference": f"CIS/{str(case.get('open_date',''))[:4]}/{str(case.get('case_id','')).zfill(4)}",
-                "Crime Type": case.get("crime_type", "—"),
-                "Status": c.map_status(case.get("status", "")),
-                "Role(s)": ", ".join(case.get("roles", [])) or "—",
-                "Opened": c.fmt_date(case.get("open_date")),
-            })
-        st.dataframe(pd.DataFrame(crows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame([{
+            "Reference": c.case_ref(case.get("open_date"), case.get("case_id")),
+            "Crime Type": case.get("crime_type") or "—",
+            "Status": c.map_status(case.get("status")),
+            "Role(s)": ", ".join(case.get("roles", [])) or "—",
+            "Opened": c.fmt_date(case.get("open_date")),
+        } for case in person_cases]), use_container_width=True, hide_index=True)
